@@ -7,7 +7,7 @@ Public API:
   ProposedOrder         — Order candidate for validation
   PortfolioSnapshot     — Portfolio state for validation
   ValidationResult      — Approval/rejection result with lot size
-  
+
   All risk constants are immutable and hardcoded:
   MAX_RISK_PER_TRADE, MAX_DAILY_LOSS, MAX_DAILY_GAIN, etc.
 """

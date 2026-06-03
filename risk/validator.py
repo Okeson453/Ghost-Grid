@@ -53,13 +53,13 @@ def validate_order(
         (
             portfolio.daily_pnl < equity * MAX_DAILY_GAIN,
             f"DAILY_GAIN: daily gain {portfolio.daily_pnl:.2f} exceeds "
-            f"{MAX_DAILY_GAIN*100:.0f}% target — halting for the day",
+            f"{MAX_DAILY_GAIN * 100:.0f}% target — halting for the day",
         ),
         # 3. Daily loss check
         (
             portfolio.daily_pnl > -(equity * MAX_DAILY_LOSS),
             f"DAILY_LOSS: daily loss {portfolio.daily_pnl:.2f} exceeds "
-            f"{MAX_DAILY_LOSS*100:.0f}% limit",
+            f"{MAX_DAILY_LOSS * 100:.0f}% limit",
         ),
         # 4. Concurrent position cap
         (
@@ -71,7 +71,7 @@ def validate_order(
         (
             portfolio.total_basket_risk + trade_risk <= equity * MAX_BASKET_RISK,
             f"BASKET_RISK: adding {trade_risk:.2f} would exceed "
-            f"{MAX_BASKET_RISK*100:.0f}% portfolio heat",
+            f"{MAX_BASKET_RISK * 100:.0f}% portfolio heat",
         ),
         # 6. Reward:Risk ratio
         (
@@ -81,14 +81,14 @@ def validate_order(
         # 7. Spread check
         (
             order.spread_pct < MAX_SPREAD_PCT,
-            f"SPREAD: {order.spread_pct*100:.4f}% exceeds "
-            f"{MAX_SPREAD_PCT*100:.4f}% maximum",
+            f"SPREAD: {order.spread_pct * 100:.4f}% exceeds "
+            f"{MAX_SPREAD_PCT * 100:.4f}% maximum",
         ),
         # 8. Margin utilisation
         (
             portfolio.margin_utilisation < MARGIN_BUFFER,
-            f"MARGIN: utilisation {portfolio.margin_utilisation*100:.1f}% "
-            f"exceeds {MARGIN_BUFFER*100:.0f}% buffer",
+            f"MARGIN: utilisation {portfolio.margin_utilisation * 100:.1f}% "
+            f"exceeds {MARGIN_BUFFER * 100:.0f}% buffer",
         ),
     ]
 

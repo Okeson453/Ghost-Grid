@@ -26,10 +26,10 @@ from risk.constants import MAX_RISK_PER_TRADE, MIN_LOT_SIZE, MAX_LOT_SIZE
 
 
 def calculate_lot_size(
-    symbol:      str,
-    equity:      float,
-    entry:       float,
-    stop_loss:   float,
+    symbol: str,
+    equity: float,
+    entry: float,
+    stop_loss: float,
 ) -> float:
     """
     Calculate lot size for a trade.
@@ -49,7 +49,7 @@ def calculate_lot_size(
     pip_distance = abs(entry - stop_loss) / instr.pip_size
 
     if pip_distance == 0:
-        return MIN_LOT_SIZE   # Degenerate case — return minimum
+        return MIN_LOT_SIZE  # Degenerate case — return minimum
 
     raw_lots = risk_capital / (pip_distance * instr.pip_value)
 
@@ -70,9 +70,9 @@ def _floor_to_step(value: float, step: float) -> float:
 
 
 def compute_stop_loss(
-    entry:     float,
+    entry: float,
     direction: str,
-    atr_5m:    float,
+    atr_5m: float,
     multiplier: float = 1.5,
 ) -> float:
     """
