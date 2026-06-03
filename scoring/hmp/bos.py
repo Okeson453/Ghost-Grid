@@ -49,9 +49,7 @@ def detect_bos(
                 confirmed=False, momentum=0.0, swing_level=0.0, mtf_aligned=False
             )
         confirmed = current_close > swing.price
-        momentum = (
-            abs(current_close - swing.price) / atr_5m if confirmed else 0.0
-        )
+        momentum = abs(current_close - swing.price) / atr_5m if confirmed else 0.0
         mtf = _check_m3_bos(m3_bars, "LONG", atr_5m) if confirmed else False
 
     else:  # SHORT
@@ -61,9 +59,7 @@ def detect_bos(
                 confirmed=False, momentum=0.0, swing_level=0.0, mtf_aligned=False
             )
         confirmed = current_close < swing.price
-        momentum = (
-            abs(current_close - swing.price) / atr_5m if confirmed else 0.0
-        )
+        momentum = abs(current_close - swing.price) / atr_5m if confirmed else 0.0
         mtf = _check_m3_bos(m3_bars, "SHORT", atr_5m) if confirmed else False
 
     return BOSResult(
