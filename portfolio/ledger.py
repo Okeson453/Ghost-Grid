@@ -8,7 +8,7 @@ Updates: PortfolioState.unrealized_pnl, realized_pnl.
 
 from __future__ import annotations
 import logging
-from typing import Dict, Optional
+from typing import Dict
 from portfolio.state import PortfolioState
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class Ledger:
     def update_unrealized(
         self,
         state: PortfolioState,
-        current_prices: Dict[str, float],  # symbol → current mid price
+        current_prices: Dict[str, float],
     ) -> None:
         """
         Recompute total unrealised PnL from all open positions.
@@ -57,35 +57,10 @@ class Ledger:
         )
 
     def reset_daily(self, state: PortfolioState, current_equity: float) -> None:
-        """
-        Reset daily PnL tracking at UTC midnight.
-        WHY: daily_pnl resets; starting_equity updates to current equity.
-        """
+        """Reset daily PnL tracking at UTC midnight."""
         state.starting_equity = current_equity
         state.realized_pnl = 0.0
         state.unrealized_pnl = 0.0
         state.day_locked = False
         state.nuclear_count_today = 0
         logger.info(f"Daily reset: new starting equity = {current_equity:.2f}")
-
-    def get_daily_metrics(self, state: PortfolioState) -> Dict[str, float]:
-        """
-        Compute daily performance metrics.
-        Returns: dict with keys: daily_pnl, daily_pnl_pct, realized_pnl, unrealized_pnl
-        """
-        daily_pnl = state.daily_pnl
-        starting_equity = state.starting_equity
-
-        if starting_equity <= 0:
-            daily_pnl_pct = 0.0
-        else:
-            daily_pnl_pct = daily_pnl / starting_equity
-
-        return {
-            "daily_pnl": daily_pnl,
-            "daily_pnl_pct": daily_pnl_pct,
-            "realized_pnl": state.realized_pnl,
-            "unrealized_pnl": state.unrealized_pnl,
-            "net_equity": state.net_equity,
-            "starting_equity": starting_equity,
-        }

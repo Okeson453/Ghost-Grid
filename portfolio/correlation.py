@@ -17,7 +17,9 @@ from portfolio.state import PortfolioState
 logger = logging.getLogger(__name__)
 
 
-def calculate_correlation(values1: List[float], values2: List[float]) -> Optional[float]:
+def calculate_correlation(
+    values1: List[float], values2: List[float]
+) -> Optional[float]:
     """
     Calculate Pearson correlation coefficient between two lists.
 
@@ -37,8 +39,10 @@ def calculate_correlation(values1: List[float], values2: List[float]) -> Optiona
     mean1 = sum(values1) / len(values1)
     mean2 = sum(values2) / len(values2)
 
-    numerator = sum((values1[i] - mean1) * (values2[i] - mean2) for i in range(len(values1)))
-    
+    numerator = sum(
+        (values1[i] - mean1) * (values2[i] - mean2) for i in range(len(values1))
+    )
+
     variance1 = sum((v - mean1) ** 2 for v in values1)
     variance2 = sum((v - mean2) ** 2 for v in values2)
 
@@ -98,7 +102,9 @@ class CorrelationEngine:
             # Can't correlate with less than 2 positions
             return 0.0
 
-        symbols = [p.symbol for p in state.open_positions.values() if hasattr(p, 'symbol')]
+        symbols = [
+            p.symbol for p in state.open_positions.values() if hasattr(p, "symbol")
+        ]
         symbols = list(set(symbols))  # Unique symbols
 
         if len(symbols) < 2:
@@ -145,11 +151,13 @@ class CorrelationEngine:
         """
         avg_corr = self.compute_portfolio_correlation(state)
         state.avg_pair_correlation = avg_corr
-        
+
         if avg_corr > 0.8:
             logger.warning(f"High portfolio correlation detected: {avg_corr:.2f}")
 
-    def is_high_correlation(self, state: PortfolioState, threshold: float = 0.8) -> bool:
+    def is_high_correlation(
+        self, state: PortfolioState, threshold: float = 0.8
+    ) -> bool:
         """
         Check if portfolio correlation exceeds threshold.
 

@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ModeDecision:
+    """Trading mode decision with reason."""
+
     mode: str  # "SCALP_NORMAL" | "SCALP_REDUCED"
     reason: str  # Human-readable reason for Telegram report
 
@@ -40,87 +42,35 @@ def select_mode(
 
     Args:
         state: Current PortfolioState
-        yesterday_loss_halt: True if yesterday's session ended in daily loss halt
+        yesterday_loss_halt: True if yesterday ended in loss halt
         win_rate_last_20: Win rate of last 20 trades (0.0-1.0)
-        current_drawdown_pct: Current drawdown from peak (0.0-1.0)
-        current_regime: Current regime ("UPTREND", "DOWNTREND", "CHOP", "CONSOLIDATION")
+        current_drawdown_pct: Drawdown from peak (0.0-1.0)
+        current_regime: Current regime ("TREND", "CHOP", etc.)
 
     Returns:
         ModeDecision with selected mode and reason
     """
-
+    # Condition 1: Yesterday ended in loss halt
     if yesterday_loss_halt:
-        return ModeDecision(
-            "SCALP_REDUCED", "Yesterday ended in daily loss halt"
-        )
+        return ModeDecision("SCALP_REDUCED", "Yesterday ended in daily loss halt")
 
+    # Condition 2: ≥2 nuclear exits today
     if state.nuclear_count_today >= 2:
         return ModeDecision(
             "SCALP_REDUCED", f"≥2 nuclear exits today ({state.nuclear_count_today})"
         )
 
+    # Condition 3: Current drawdown > 12%
     if current_drawdown_pct > 0.12:
         return ModeDecision(
-            "SCALP_REDUCED", f"Drawdown {current_drawdown_pct * 100:.1f}% > 12% threshold"
+            "SCALP_REDUCED",
+            f"Drawdown {current_drawdown_pct * 100:.1f}% > 12% threshold",
         )
 
+    # Condition 4: Low win rate in CHOP
     if current_regime == "CHOP" and win_rate_last_20 < 0.45:
         return ModeDecision(
-            "SCALP_REDUCED",
-            f"Win rate {win_rate_last_20 * 100:.0f}% < 45% in CHOP regime",
+            "SCALP_REDUCED", f"Win rate {win_rate_last_20 * 100:.0f}% < 45% in CHOP"
         )
 
     return ModeDecision("SCALP_NORMAL", "All defensive conditions clear")
-
-
-class ModeAutomaton:
-    """
-    Manages trading mode transitions.
-    Stateless — all state lives in PortfolioState.
-    """
-
-    def apply_mode_decision(self, state: PortfolioState, decision: ModeDecision) -> bool:
-        """
-        Apply mode decision to state if different from current mode.
-
-        Returns:
-            True if mode changed, False if mode unchanged
-        """
-        old_mode = state.current_mode
-        state.current_mode = decision.mode
-
-        if old_mode != decision.mode:
-            logger.info(f"Mode transition: {old_mode} → {decision.mode} | {decision.reason}")
-            return True
-        return False
-
-    def is_normal_mode(self, state: PortfolioState) -> bool:
-        """Check if currently in SCALP_NORMAL mode."""
-        return state.current_mode == "SCALP_NORMAL"
-
-    def is_reduced_mode(self, state: PortfolioState) -> bool:
-        """Check if currently in SCALP_REDUCED mode."""
-        return state.current_mode == "SCALP_REDUCED"
-
-    def get_mode_multiplier(self, state: PortfolioState) -> float:
-        """
-        Get the risk multiplier based on current mode.
-        Used by risk/sizer.py to adjust lot sizes.
-
-        SCALP_NORMAL:  1.0x (baseline)
-        SCALP_REDUCED: 0.5x (half baseline risk)
-        """
-        if state.current_mode == "SCALP_REDUCED":
-            return 0.5
-        return 1.0
-
-    def get_max_leverage(self, state: PortfolioState) -> int:
-        """
-        Get maximum leverage multiplier for current mode.
-
-        SCALP_NORMAL:  30x
-        SCALP_REDUCED: 15x
-        """
-        if state.current_mode == "SCALP_REDUCED":
-            return 15
-        return 30

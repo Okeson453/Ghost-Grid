@@ -11,7 +11,6 @@ Watchdog thread reads via get_frozen_snapshot() which returns a frozen copy.
 """
 
 from __future__ import annotations
-import time
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
@@ -47,10 +46,13 @@ class PortfolioState:
         """Sum of risk capital in all open positions."""
         total = 0.0
         for p in self.open_positions.values():
-            if hasattr(p, 'lots') and hasattr(p, 'entry') and hasattr(p, 'hard_stop') and \
-               hasattr(p, '_pip_size') and hasattr(p, '_pip_value'):
-                risk = p.lots * abs(p.entry - p.hard_stop) / p._pip_size * p._pip_value
-                total += risk
+            if hasattr(p, 'lots') and hasattr(p, 'entry') and hasattr(p, 'hard_stop'):
+                try:
+                    pip_risk = abs(p.entry - p.hard_stop)
+                    pip_value = getattr(p, '_pip_value', 1.0)
+                    total += p.lots * pip_risk * pip_value
+                except (AttributeError, TypeError):
+                    pass
         return total
 
     # Execution state
@@ -74,12 +76,13 @@ class PortfolioState:
     # Basket RSI (average RSI of all open position directions)
     avg_basket_rsi: float = 50.0
 
-    def add_position(self, position_id: int, position_state: Any) -> None:
-        """Add a position to the open positions registry."""
-        self.open_positions[position_id] = position_state
+    def add_position(self, sm: Any) -> None:
+        """Add a position to the registry."""
+        if hasattr(sm, 'position_id'):
+            self.open_positions[sm.position_id] = sm
 
     def remove_position(self, position_id: int) -> Optional[Any]:
-        """Remove a position from the open positions registry."""
+        """Remove a position from the registry."""
         return self.open_positions.pop(position_id, None)
 
     def get_frozen_snapshot(self) -> "FrozenPortfolioSnapshot":
@@ -110,22 +113,3 @@ class FrozenPortfolioSnapshot:
     margin_utilisation: float
     day_locked: bool
     circuit_breaker: bool
-
-    @property
-    def daily_loss_pct(self) -> float:
-        """Percentage loss from starting equity."""
-        if self.starting_equity <= 0:
-            return 0.0
-        return (self.daily_pnl / self.starting_equity)
-
-    @property
-    def daily_gain_pct(self) -> float:
-        """Percentage gain from starting equity."""
-        return self.daily_loss_pct  # Same calc for both
-
-    @property
-    def equity_drawdown_pct(self) -> float:
-        """Maximum drawdown from starting equity."""
-        if self.daily_loss_pct < 0:
-            return abs(self.daily_loss_pct)
-        return 0.0
