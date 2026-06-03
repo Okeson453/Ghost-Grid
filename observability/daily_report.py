@@ -167,7 +167,9 @@ class DailyReporter:
         date_utc = now_utc.strftime("%Y-%m-%d")
 
         daily_total = realized_pnl + unrealized_pnl
-        daily_return = (daily_total / starting_equity * 100) if starting_equity > 0 else 0
+        daily_return = (
+            (daily_total / starting_equity * 100) if starting_equity > 0 else 0
+        )
 
         # Aggregate trade statistics
         trade_stats = self._compute_trade_stats()
@@ -412,4 +414,3 @@ def generate_daily_report(
         nuclear_count,
         drift_status,
     )
-
