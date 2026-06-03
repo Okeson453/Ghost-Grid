@@ -137,8 +137,8 @@ class ConfluenceScore:
     @property
     def above_threshold(self) -> bool:
         """Convenience check used by gate.py."""
-        # TODO: Import from config.constants when available
-        threshold = 140  # Default threshold
+        from config.constants import REGIME_THRESHOLDS
+        threshold = REGIME_THRESHOLDS.get(self.regime, 140)
         return self.composite >= threshold
 
 
