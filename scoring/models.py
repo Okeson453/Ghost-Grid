@@ -16,8 +16,10 @@ from typing import Optional
 
 # ── Gate decisions ────────────────────────────────────────────────────────
 
+
 class GateDecision(str, Enum):
     """Gate decision enum for confluence score routing."""
+
     DISCARD = "DISCARD"  # H_c too low — no action
     WATCHLIST = "WATCHLIST"  # Approaching threshold — pre-warm
     ALERT = "ALERT"  # At threshold, 1 cycle — Telegram only
@@ -27,17 +29,21 @@ class GateDecision(str, Enum):
 
 # ── Direction ─────────────────────────────────────────────────────────────
 
+
 class Direction(str, Enum):
     """Trade direction enum."""
+
     LONG = "LONG"
     SHORT = "SHORT"
 
 
 # ── HMP sub-detector results ──────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class SwingPoint:
     """A detected swing high or swing low."""
+
     price: float
     timestamp_ms: int
     swing_type: str  # "HIGH" | "LOW"
@@ -47,6 +53,7 @@ class SwingPoint:
 @dataclass(frozen=True)
 class BOSResult:
     """Break of Structure detection result."""
+
     confirmed: bool
     momentum: float  # |close - swing| / ATR(14), 0.0 if not confirmed
     swing_level: float  # The broken swing level
@@ -68,6 +75,7 @@ class BOSResult:
 @dataclass(frozen=True)
 class CHoCHResult:
     """Change of Character detection result."""
+
     confirmed: bool
     quality: str  # "high" | "med" | "low" | "none"
     level: float  # Price level where CHoCH occurred
@@ -76,6 +84,7 @@ class CHoCHResult:
 @dataclass(frozen=True)
 class FVGResult:
     """Fair Value Gap detection result."""
+
     found: bool
     top: float
     bottom: float
@@ -88,6 +97,7 @@ class FVGResult:
 @dataclass(frozen=True)
 class OrderBlockResult:
     """Order Block detection result."""
+
     found: bool
     top: float
     bottom: float
@@ -98,9 +108,11 @@ class OrderBlockResult:
 
 # ── Full HMP result ───────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class HMPResult:
     """Complete HMP (Smart Money Structure) scoring result."""
+
     score: int  # 0–60
     direction: str  # "LONG" | "SHORT"
     bos: BOSResult
@@ -117,6 +129,7 @@ class HMPResult:
 
 # ── Confluence score (assembled in Part 4: scoring/fusion.py) ─────────────
 
+
 @dataclass(frozen=True)
 class ConfluenceScore:
     """
@@ -124,6 +137,7 @@ class ConfluenceScore:
     Produced by scoring/fusion.py (Part 4).
     HMP available after Part 2; HLCP + MPP added in Part 3.
     """
+
     symbol: str
     hmp: int  # 0–60
     hlcp: int  # 0–60 (0 until Part 3 is merged)
@@ -138,23 +152,54 @@ class ConfluenceScore:
     def above_threshold(self) -> bool:
         """Convenience check used by gate.py."""
         from config.constants import REGIME_THRESHOLDS
+
         threshold = REGIME_THRESHOLDS.get(self.regime, 140)
         return self.composite >= threshold
 
 
-# ── HLCP result (stub — filled in Part 3) ─────────────────────────────────
+# ── HLCP result (Trend + Liquidity Intelligence) ───────────────────────────
+
 
 @dataclass(frozen=True)
 class HLCPResult:
-    """Trend + Liquidity scoring result. Filled in Part 3."""
-    score: int = 0
-    direction: str = "LONG"
+    """
+    Trend + Liquidity scoring result (Part 3).
+
+    Scoring rubric:
+      Trend alignment:     0–25 pts (EMA ribbon consensus)
+      Liquidity void:      0–20 pts (equal highs/lows proximity)
+      Momentum decay:      0–15 pts (RSI(7) + volume exhaustion)
+      Kill-zone bonus:       0–5 pts (London/NY Overlap session)
+      ────────────────────────────────
+      Total capped:            60 pts
+    """
+
+    score: int  # 0–60
+    direction: str  # "LONG" | "SHORT"
+    trend_pts: int = 0  # 0–25
+    liquidity_pts: int = 0  # 0–20
+    momentum_pts: int = 0  # 0–15
+    killzone_pts: int = 0  # 0–5
 
 
-# ── MPP result (stub — filled in Part 3) ──────────────────────────────────
+# ── MPP result (Institutional Footprint) ──────────────────────────────────
+
 
 @dataclass(frozen=True)
 class MPPResult:
-    """Institutional Footprint scoring result. Filled in Part 3."""
-    score: int = 0
-    direction: str = "LONG"
+    """
+    Institutional Footprint scoring result (Part 3).
+
+    Scoring rubric:
+      CVD divergence:      0–25 pts (Z-score + price/CVD alignment)
+      Session bias:        0–20 pts (VWAP + bar consistency)
+      Absorption:          0–15 pts (sweep-and-reclaim + HV rejection)
+      ────────────────────────────────
+      Total capped:            60 pts
+    """
+
+    score: int  # 0–60
+    direction: str  # "LONG" | "SHORT"
+    cvd_pts: int = 0  # 0–25
+    bias_pts: int = 0  # 0–20
+    absorption_pts: int = 0  # 0–15

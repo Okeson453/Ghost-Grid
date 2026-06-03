@@ -14,8 +14,8 @@ from __future__ import annotations
 from data.schema import MarketSnapshot
 from scoring.models import MPPResult
 from scoring.mpp.cvd_divergence import detect_cvd_divergence
-from scoring.mpp.session_bias   import compute_session_bias, score_session_bias
-from scoring.mpp.absorption     import detect_absorption, score_absorption
+from scoring.mpp.session_bias import compute_session_bias, score_session_bias
+from scoring.mpp.absorption import detect_absorption, score_absorption
 
 
 def calculate_mpp(snap: MarketSnapshot, direction: str) -> MPPResult:
@@ -42,15 +42,19 @@ def calculate_mpp(snap: MarketSnapshot, direction: str) -> MPPResult:
         cvd_pts = 0
 
     # ── Session bias ──────────────────────────────────────────────────────
-    bias     = compute_session_bias(
-        snap.m1, snap.vwap, snap.tick.mid, direction
-    )
+    bias = compute_session_bias(snap.m1, snap.vwap, snap.tick.mid, direction)
     bias_pts = score_session_bias(bias)
 
     # ── Absorption ────────────────────────────────────────────────────────
     absorption = detect_absorption(snap.m1, direction)
-    abs_pts    = score_absorption(absorption)
+    abs_pts = score_absorption(absorption)
 
     total = min(cvd_pts + bias_pts + abs_pts, 60)
 
-    return MPPResult(score=total, direction=direction)
+    return MPPResult(
+        score=total,
+        direction=direction,
+        cvd_pts=cvd_pts,
+        bias_pts=bias_pts,
+        absorption_pts=abs_pts,
+    )
