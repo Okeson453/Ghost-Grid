@@ -13,6 +13,26 @@ from dataclasses import dataclass
 from .schema import Tick, OHLCV, BarBuffer
 
 
+class AggregatorMetrics:
+    """Metrics for OHLCV aggregation."""
+    def __init__(self) -> None:
+        self.total_ticks: int = 0
+        self.ticks_processed: int = 0
+        self.m1_bars_created: int = 0
+        self.m3_bars_created: int = 0
+        self.m5_bars_created: int = 0
+        self.gaps_detected: int = 0  # Gap-up/gap-down
+
+    def reset(self) -> None:
+        """Reset all metrics to zero."""
+        self.total_ticks = 0
+        self.ticks_processed = 0
+        self.m1_bars_created = 0
+        self.m3_bars_created = 0
+        self.m5_bars_created = 0
+        self.gaps_detected = 0
+
+
 # Timeframe durations in milliseconds
 TIMEFRAME_MS = {
     "M1": 60 * 1000,
@@ -82,6 +102,13 @@ class OHLCVAggregator:
             "M3": BarBuffer(symbol=symbol, timeframe="M3", max_size=200),
             "M5": BarBuffer(symbol=symbol, timeframe="M5", max_size=100),
         }
+        self._metrics = AggregatorMetrics()
+        self._last_close: float = 0.0
+
+    @property
+    def metrics(self) -> AggregatorMetrics:
+        """Get aggregator metrics."""
+        return self._metrics
 
     def on_tick(self, tick: Tick) -> list[OHLCV]:
         """
@@ -91,6 +118,14 @@ class OHLCVAggregator:
         consistent bar alignment across all symbols and sessions, independent
         of tick arrival timing. Prevents micro-gaps or overlaps in bar timing.
         """
+        self._metrics.total_ticks += 1
+        self._metrics.ticks_processed += 1
+        
+        # Detect gaps (price jump from last close)
+        if self._last_close > 0 and abs(tick.mid - self._last_close) > 0.01:
+            self._metrics.gaps_detected += 1
+        self._last_close = tick.mid
+        
         completed_bars: list[OHLCV] = []
 
         for timeframe in ["M1", "M3", "M5"]:

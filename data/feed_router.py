@@ -30,6 +30,22 @@ log = logging.getLogger(__name__)
 ScoringCallback = Callable[[MarketSnapshot], Awaitable[None]]
 
 
+class FeedRouterMetrics:
+    """Metrics for feed router."""
+    def __init__(self) -> None:
+        self.total_snapshots: int = 0
+        self.callback_errors: int = 0
+        self.symbols_processed: int = 0
+        self.per_symbol_counts: dict[str, int] = {}  # Snapshot count per symbol
+
+    def reset(self) -> None:
+        """Reset all metrics to zero."""
+        self.total_snapshots = 0
+        self.callback_errors = 0
+        self.symbols_processed = 0
+        self.per_symbol_counts.clear()
+
+
 class FeedRouter:
     """Routes ticks to per-symbol tasks."""
 
@@ -45,6 +61,15 @@ class FeedRouter:
         # Pre-register all symbol queues with reader
         for symbol in INSTRUMENTS:
             self._reader.get_tick_queue(symbol)
+        self._metrics = FeedRouterMetrics()
+        # Initialize per-symbol counters
+        for symbol in INSTRUMENTS:
+            self._metrics.per_symbol_counts[symbol] = 0
+
+    @property
+    def metrics(self) -> FeedRouterMetrics:
+        """Get feed router metrics."""
+        return self._metrics
 
     async def run(self) -> None:
         """Launch per-symbol processing tasks."""
@@ -71,10 +96,13 @@ class FeedRouter:
                 # Build snapshot
                 snapshot = builder.on_tick(tick)
                 if snapshot is not None:
+                    self._metrics.total_snapshots += 1
+                    self._metrics.per_symbol_counts[symbol] += 1
                     # Emit to scoring layer
                     try:
                         await self._on_snapshot(snapshot)
                     except Exception as e:
+                        self._metrics.callback_errors += 1
                         log.error(f"Snapshot callback error ({symbol}): {e}")
 
             except asyncio.CancelledError:

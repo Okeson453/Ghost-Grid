@@ -12,14 +12,35 @@ Returns None until the buffer has warmed up (20 M1 bars, 14 M5 bars).
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from config import get_current_session
+from config import get_current_session, get_instrument
 from .schema import Tick, MarketSnapshot
 from .aggregator import OHLCVAggregator
 from .cvd_engine import CVDEngine
 from .vwap import VWAPCalculator
 from .atr import ATRCalculator
+
+if TYPE_CHECKING:
+    from bridge.protocol import TickMessage
+
+
+class SnapshotBuilderMetrics:
+    """Metrics for snapshot building."""
+    def __init__(self) -> None:
+        self.total_ticks: int = 0
+        self.snapshots_produced: int = 0
+        self.warmup_ticks: int = 0
+        self.validation_failures: int = 0
+        self.session_changes: int = 0
+
+    def reset(self) -> None:
+        """Reset all metrics to zero."""
+        self.total_ticks = 0
+        self.snapshots_produced = 0
+        self.warmup_ticks = 0
+        self.validation_failures = 0
+        self.session_changes = 0
 
 
 class SnapshotBuilder:
@@ -33,21 +54,46 @@ class SnapshotBuilder:
         self._atr_1m = ATRCalculator(period=14)
         self._atr_5m = ATRCalculator(period=14)
         self._current_session = ""
+        self._metrics = SnapshotBuilderMetrics()
+        self._last_session = ""
 
-    def on_tick(self, tick: Tick) -> Optional[MarketSnapshot]:
+    @property
+    def metrics(self) -> SnapshotBuilderMetrics:
+        """Get snapshot builder metrics."""
+        return self._metrics
+
+    def on_tick(self, raw: TickMessage) -> Optional[MarketSnapshot]:
         """
-        Process one tick and return MarketSnapshot if ready, else None.
+        Process one TickMessage and return MarketSnapshot if ready, else None.
 
         Steps:
-        1. Detect current session
-        2. Aggregate tick into M1/M3/M5 bars
-        3. Update VWAP with tick
-        4. On M1 bar close: update CVD and ATR_1m
-        5. On M5 bar close: update ATR_5m
-        6. Guard: return None if buffers not warm
-        7. Return complete MarketSnapshot (regime="" for now)
+        1. Detect current session from get_current_session()
+        2. Build Tick dataclass from raw TickMessage
+        3. Run OHLCVAggregator.on_tick() — get new_bars
+        4. Update VWAP with tick
+        5. On M1 bar close: update CVD, update ATR_1m
+        6. On M5 bar close: update ATR_5m
+        7. Guard: return None if < 20 M1 bars or < 14 M5 bars
+        8. Return complete MarketSnapshot with regime=""
         """
+        self._metrics.total_ticks += 1
         self._current_session = get_current_session()
+        
+        if self._current_session != self._last_session:
+            self._metrics.session_changes += 1
+            self._last_session = self._current_session
+
+        # Build Tick dataclass from raw TickMessage
+        tick = Tick(
+            symbol=raw.symbol,
+            timestamp_ms=raw.timestamp_ms,
+            bid=raw.bid,
+            ask=raw.ask,
+            tick_volume=raw.tick_volume,
+            dominant_side=raw.dominant_side,
+            cvd_running=raw.cvd_running,
+            session=self._current_session,
+        )
 
         # Run aggregator — returns newly completed bars
         new_bars = self._agg.on_tick(tick)
@@ -56,26 +102,29 @@ class SnapshotBuilder:
         self._vwap.update(tick)
 
         # On M1 bar close: update CVD and ATR_1m
-        m1_bars = new_bars
-        if m1_bars and [b for b in m1_bars if b.timeframe == "M1"]:
-            m1_bar = [b for b in m1_bars if b.timeframe == "M1"][0]
+        m1_bars = [b for b in new_bars if b.timeframe == "M1"]
+        if m1_bars:
+            m1_bar = m1_bars[0]
             # CVD updated on M1 close (actual CVD calculation happens in regime layer)
             # For now, use 0.0 as placeholder (will be filled by regime/cvd module)
             self._cvd.on_bar_close(0.0, self._current_session)
             self._atr_1m.update(m1_bar)
 
         # On M5 bar close: update ATR_5m
-        if m1_bars and [b for b in m1_bars if b.timeframe == "M5"]:
-            m5_bar = [b for b in m1_bars if b.timeframe == "M5"][0]
+        m5_bars = [b for b in new_bars if b.timeframe == "M5"]
+        if m5_bars:
+            m5_bar = m5_bars[0]
             self._atr_5m.update(m5_bar)
 
         # Guard: return None if not warmed up
         m1_count = len(self._agg._buffers["M1"])
         m5_count = len(self._agg._buffers["M5"])
         if m1_count < 20 or m5_count < 14:
+            self._metrics.warmup_ticks += 1
             return None
 
         # Build and return MarketSnapshot
+        self._metrics.snapshots_produced += 1
         return MarketSnapshot(
             symbol=self.symbol,
             tick=tick,

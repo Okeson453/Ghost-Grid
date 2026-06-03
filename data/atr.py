@@ -18,6 +18,22 @@ from dataclasses import dataclass
 from .schema import OHLCV
 
 
+class ATRMetrics:
+    """Metrics for ATR calculation."""
+    def __init__(self) -> None:
+        self.total_bars: int = 0
+        self.warmup_bars: int = 0  # Bars before ATR initialized
+        self.updates: int = 0
+        self.gap_days_detected: int = 0
+
+    def reset(self) -> None:
+        """Reset all metrics to zero."""
+        self.total_bars = 0
+        self.warmup_bars = 0
+        self.updates = 0
+        self.gap_days_detected = 0
+
+
 @dataclass
 class ATRCalculator:
     """Wilder's smoothed ATR calculator."""
@@ -28,14 +44,29 @@ class ATRCalculator:
         self._true_ranges: list[float] = []
         self._atr: float = 0.0
         self._initialised: bool = False
+        self._metrics = ATRMetrics()
+        self._last_close: float = 0.0
+
+    @property
+    def metrics(self) -> ATRMetrics:
+        """Get ATR metrics."""
+        return self._metrics
 
     def update(self, bar: OHLCV) -> None:
         """Feed one completed bar to the calculator."""
+        self._metrics.total_bars += 1
+        
+        # Detect gaps (overnight)
+        if self._last_close > 0 and bar.open > self._last_close * 1.005:
+            self._metrics.gap_days_detected += 1
+        self._last_close = bar.close
+        
         tr = self._true_range(bar)
 
         if not self._initialised:
             # Accumulate until we have `period` true ranges
             self._true_ranges.append(tr)
+            self._metrics.warmup_bars += 1
             if len(self._true_ranges) == self.period:
                 # Initialise with simple average of first N true ranges
                 self._atr = sum(self._true_ranges) / self.period
@@ -44,6 +75,7 @@ class ATRCalculator:
             # Wilder's smoothing: alpha = 1 / period
             alpha = 1.0 / self.period
             self._atr = alpha * tr + (1.0 - alpha) * self._atr
+            self._metrics.updates += 1
 
     @property
     def value(self) -> float:

@@ -71,6 +71,7 @@ async def main() -> None:
 
     Initializes pipe client, reader, writer, feed router, and health monitor.
     Runs until cancelled via SIGINT/SIGTERM.
+    Periodically logs metrics for enterprise monitoring.
     """
     settings = get_settings()
 
@@ -96,6 +97,59 @@ async def main() -> None:
         log.error("connect_failed", error=str(e))
         return
 
+    # Metrics reporting task
+    async def report_metrics() -> None:
+        """Periodically report bridge, pipe, and data layer metrics."""
+        while True:
+            try:
+                await asyncio.sleep(30.0)  # Report every 30 seconds
+                
+                # Bridge metrics
+                client_metrics = pipe_client.metrics
+                reader_metrics = pipe_reader.metrics
+                writer_metrics = pipe_writer.metrics
+                reconnect_metrics = reconnect_manager.metrics
+                
+                # Data layer metrics (collect from all symbol builders)
+                total_snapshots = feed_router._metrics.total_snapshots
+                callback_errors = feed_router._metrics.callback_errors
+                agg_m1_bars = sum(b.metrics.m1_bars_created for b in feed_router._builders.values())
+                agg_m5_bars = sum(b.metrics.m5_bars_created for b in feed_router._builders.values())
+                snapshot_warmups = sum(b.metrics.warmup_ticks for b in feed_router._builders.values())
+                
+                log.info(
+                    "metrics_report",
+                    # Pipe client
+                    client_connects=client_metrics.connection_successes,
+                    client_uptime_s=client_metrics.uptime_s,
+                    client_reads=client_metrics.total_reads,
+                    client_writes=client_metrics.total_writes,
+                    # Reader
+                    reader_lines_read=reader_metrics.total_lines_read,
+                    reader_ticks=reader_metrics.ticks_dispatched,
+                    reader_fills=reader_metrics.fills_dispatched,
+                    reader_tick_overflows=reader_metrics.tick_queue_overflows,
+                    # Writer
+                    writer_enqueued=writer_metrics.total_enqueued,
+                    writer_written=writer_metrics.total_written,
+                    writer_queue_depth=writer_metrics.max_queue_depth,
+                    writer_overflows=writer_metrics.queue_overflows,
+                    # Reconnect
+                    reconnect_attempts=reconnect_metrics.total_reconnect_attempts,
+                    reconnect_successes=reconnect_metrics.successful_reconnects,
+                    downtime_s=reconnect_metrics.total_downtime_s,
+                    # Data layer
+                    total_snapshots=total_snapshots,
+                    callback_errors=callback_errors,
+                    m1_bars_created=agg_m1_bars,
+                    m5_bars_created=agg_m5_bars,
+                    warmup_ticks=snapshot_warmups,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("metrics_report_error", error=str(e))
+
     # Launch all tasks
     try:
         tasks = [
@@ -104,6 +158,7 @@ async def main() -> None:
             asyncio.create_task(feed_router.run(), name="feed_router"),
             asyncio.create_task(reconnect_manager.run(), name="reconnect"),
             asyncio.create_task(health_monitor.run(), name="health"),
+            asyncio.create_task(report_metrics(), name="metrics_reporter"),
         ]
 
         log.info("all_tasks_launched")
@@ -122,8 +177,21 @@ async def main() -> None:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
     finally:
+        # Log final metrics
+        client_metrics = pipe_client.metrics
+        reader_metrics = pipe_reader.metrics
+        writer_metrics = pipe_writer.metrics
+        feed_metrics = feed_router.metrics
+        
+        log.info(
+            "shutdown_complete",
+            client_uptime_s=client_metrics.uptime_s,
+            total_ticks=reader_metrics.ticks_dispatched,
+            total_writes=writer_metrics.total_written,
+            total_snapshots=feed_metrics.total_snapshots,
+            callback_errors=feed_metrics.callback_errors,
+        )
         await pipe_client.close()
-        log.info("shutdown_complete")
 
 
 def signal_handler(signum, frame):
@@ -144,6 +212,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log.info("interrupted")
         sys.exit(0)
-
-if __name__ == "__main__":
-    asyncio.run(main())
