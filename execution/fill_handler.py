@@ -1,1 +1,125 @@
-# FILL/REJECT parser
+"""
+execution/fill_handler.py
+Parse FILL/REJECT/FAILED responses from MT5 via named pipe.
+WHY: Isolated parsing enables unit testing and robust error handling.
+"""
+
+from __future__ import annotations
+from typing import Optional, Tuple
+
+from .models import FillResult, OrderStatus, FillHandlerMetrics
+
+
+class FillHandler:
+    """
+    Parse responses from MT5 pipe reader.
+    WHY: Decouples parsing logic from I/O, enables metrics.
+    """
+
+    def __init__(self):
+        self._metrics = FillHandlerMetrics()
+
+    def parse_response(self, response: str) -> Optional[FillResult]:
+        """
+        Parse a response line from MT5.
+
+        Expected formats:
+        - FILL|symbol|position_id|fill_price|fill_time_ms|request_id
+        - REJECT|reason
+        - FAILED|position_id|reason
+
+        Returns: FillResult if parsed successfully, None if malformed
+        """
+        try:
+            parts = response.strip().split("|")
+            if not parts:
+                self._metrics.malformed_responses += 1
+                return None
+
+            response_type = parts[0]
+
+            if response_type == "FILL":
+                return self._parse_fill(parts)
+            elif response_type == "REJECT":
+                return self._parse_reject(parts)
+            elif response_type == "FAILED":
+                return self._parse_failed(parts)
+            else:
+                self._metrics.malformed_responses += 1
+                return None
+
+        except Exception as e:
+            self._metrics.parse_errors += 1
+            return None
+
+    def _parse_fill(self, parts: list[str]) -> Optional[FillResult]:
+        """Parse FILL|symbol|position_id|fill_price|fill_time_ms|request_id"""
+        try:
+            if len(parts) < 6:
+                self._metrics.malformed_responses += 1
+                return None
+
+            return FillResult(
+                status=OrderStatus.FILL,
+                symbol=parts[1],
+                position_id=int(parts[2]),
+                fill_price=float(parts[3]),
+                fill_time_ms=int(parts[4]),
+                request_id=parts[5],
+                reason=None,
+            )
+        except (ValueError, IndexError) as e:
+            self._metrics.parse_errors += 1
+            return None
+        finally:
+            self._metrics.fills_received += 1
+
+    def _parse_reject(self, parts: list[str]) -> Optional[FillResult]:
+        """Parse REJECT|reason"""
+        try:
+            if len(parts) < 2:
+                self._metrics.malformed_responses += 1
+                return None
+
+            # REJECT is order-level (no position_id)
+            return FillResult(
+                status=OrderStatus.REJECT,
+                symbol="",
+                position_id=0,
+                fill_price=0.0,
+                fill_time_ms=0,
+                request_id="",
+                reason=parts[1],
+            )
+        except Exception as e:
+            self._metrics.parse_errors += 1
+            return None
+        finally:
+            self._metrics.rejects_received += 1
+
+    def _parse_failed(self, parts: list[str]) -> Optional[FillResult]:
+        """Parse FAILED|position_id|reason"""
+        try:
+            if len(parts) < 3:
+                self._metrics.malformed_responses += 1
+                return None
+
+            return FillResult(
+                status=OrderStatus.FAILED,
+                symbol="",
+                position_id=int(parts[1]),
+                fill_price=0.0,
+                fill_time_ms=0,
+                request_id="",
+                reason=parts[2],
+            )
+        except (ValueError, IndexError) as e:
+            self._metrics.parse_errors += 1
+            return None
+        finally:
+            self._metrics.failed_received += 1
+
+    @property
+    def metrics(self) -> FillHandlerMetrics:
+        """Expose metrics."""
+        return self._metrics
