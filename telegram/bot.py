@@ -1,1 +1,74 @@
-# Application setup
+"""
+telegram/bot.py
+Telegram bot setup and command handler registration.
+
+Chat ID filter: all commands validated against configured chat_id.
+Only the authorised chat can send commands.
+"""
+
+from __future__ import annotations
+import logging
+from typing import TYPE_CHECKING
+
+try:
+    from telegram.ext import Application, CommandHandler, filters
+    HAS_TELEGRAM = True
+except ImportError:
+    HAS_TELEGRAM = False
+
+if TYPE_CHECKING:
+    from portfolio.state import PortfolioState
+    from nuclear.controller import NuclearController
+
+from config import get_settings
+from telegram.commands import (
+    cmd_nuke,
+    cmd_status,
+    cmd_pause,
+    cmd_resume,
+    cmd_positions,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def build_application(
+    portfolio_state: "PortfolioState",
+    nuclear_controller: "NuclearController",
+) -> Application:
+    """
+    Build the Telegram bot Application with all command handlers.
+
+    Args:
+        portfolio_state:       Live PortfolioState instance
+        nuclear_controller:    NuclearController instance
+
+    Returns:
+        Configured Application (not yet running)
+    """
+    if not HAS_TELEGRAM:
+        raise ImportError(
+            "python-telegram-bot not installed. "
+            "Install with: pip install python-telegram-bot"
+        )
+
+    settings = get_settings()
+
+    app = Application.builder().token(settings.telegram_token).build()
+
+    # Inject dependencies via bot_data
+    app.bot_data["portfolio_state"] = portfolio_state
+    app.bot_data["nuclear_controller"] = nuclear_controller
+
+    # Command filter: only respond to the authorised chat ID
+    chat_filter = filters.Chat(chat_id=int(settings.telegram_chat_id))
+
+    # Register all command handlers with chat filter
+    app.add_handler(CommandHandler("nuke", cmd_nuke, filters=chat_filter))
+    app.add_handler(CommandHandler("status", cmd_status, filters=chat_filter))
+    app.add_handler(CommandHandler("pause", cmd_pause, filters=chat_filter))
+    app.add_handler(CommandHandler("resume", cmd_resume, filters=chat_filter))
+    app.add_handler(CommandHandler("positions", cmd_positions, filters=chat_filter))
+
+    logger.info("Telegram bot configured")
+    return app
