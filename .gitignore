@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Runtime data
+data_store/*.db
+data_store/*.csv
+logs/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.venv/
+
+# MT5 compiled
+mt5_ea/*.ex5
+
+# IDE
+.vscode/
+.idea/

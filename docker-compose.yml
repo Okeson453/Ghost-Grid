@@ -1,0 +1,11 @@
+version: '3.9'
+
+services:
+  ghost_grid:
+    build: .
+    container_name: ghost_grid_core
+    restart: unless-stopped
+    volumes:
+      - ./data_store:/app/data_store
+      - ./logs:/app/logs
+    network_mode: host

@@ -1,0 +1,1 @@
+# Lot size formula
