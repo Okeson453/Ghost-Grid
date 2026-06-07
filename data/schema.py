@@ -2,6 +2,8 @@
 data/schema.py
 Core data models shared by all modules.
 
+SOURCE: GHOST-GRID-MT5-Design.md § 1.2 Market Data Schema
+
 This file defines the canonical representation of market data:
 - Tick: single price quote (bid/ask)
 - OHLCV: aggregated bar (1m, 3m, 5m)
@@ -16,6 +18,12 @@ a point-in-time market state. Scoring engines never mutate snapshots —
 they use dataclasses.replace() to create new versions with modified
 regime/session fields. This enforces functional composition and makes
 debugging easier (no hidden state changes).
+
+Design spec fields preserved:
+- Tick.cvd: cumulative volume delta (running), from EA via named pipe
+- OHLCV.timeframe: "M1" | "M3" | "M5" (design spec requirement)
+- MarketSnapshot.cvd_history: last 200 CVD values (1-per-minute)
+- MarketSnapshot.regime: 4-state enum (TREND|CHOP|BREAKOUT|REVERSAL)
 """
 
 from __future__ import annotations

@@ -22,6 +22,7 @@ SCHMITT_SUSTAIN_CYCLES: int = 2  # H_c must sustain ≥2 cycles before FULL_AUTO
 WATCHLIST_DECAY_BARS: int = 15  # Watchlist entry expires after N scoring cycles
 
 # Regime-adjusted H_c thresholds (gate.py reads these)
+# From design: TREND=130, CHOP=155, BREAKOUT=140, REVERSAL=145
 REGIME_THRESHOLDS: dict[str, int] = {
     "TREND": 130,  # Most permissive — trends are reliable
     "CHOP": 155,  # Most restrictive — false signals common in ranging markets
@@ -36,9 +37,18 @@ RECONNECT_BACKOFF_MAX_S: int = 30  # Cap at 30 seconds
 RECONNECT_MAX_ATTEMPTS: int = 5  # After this many failures, pause all trading
 RECONNECT_PAUSE_THRESHOLD: int = 5  # Consecutive failures before pause
 
-# ── Profit Taking & Trailing Stops ─────────────────────────────────────────
-PROFIT_TRIGGER_USD: float = 50.0  # Exit 50% at +$50 per position
-TRAIL_FLOOR_USD: float = 20.0  # Trailing stop floor at +$20
+# ── Position Exit — Multi-Layer Thresholds ────────────────────────────────────
+# Layer 1: Profit trigger → arms trailing stop
+PROFIT_TRIGGER_USD: float = 1.50  # Layer 1: $1.50 unrealised profit → trail armed
+# Layer 2: Trailing stop execution
+TRAIL_FLOOR_USD: float = 0.75  # Min trail distance floor: $0.75 (ATR-adaptive usually larger)
+# Layer 3: Weakness detection (RSI + engulfing + volume cliff all three)
+# Layer 4: CVD divergence override (fastest exit)
+CVD_EXIT_ZSCORE: float = 2.0  # Close if CVD divergence exceeds 2.0 sigma (Z-score)
 
-# ── CVD Exit Override (Layer 4) ────────────────────────────────────────────
-CVD_EXIT_ZSCORE: float = 2.5  # Close if CVD divergence exceeds 2.5 sigma (fastest exit)
+# ── Nuclear Portfolio Guardian — 7 Triggers ─────────────────────────────────
+# From design: triggers evaluate every 500ms, any fire closes all positions
+NUCLEAR_COMBINED_PROFIT_USD: float = 10.00  # Trigger 1: profit ceiling
+NUCLEAR_LOSS_PROTECTION_USD: float = -6.00  # Trigger 3: floating loss floor
+NUCLEAR_LATENCY_THRESHOLD_MS: float = 500.0  # Trigger 6: execution latency anomaly
+NUCLEAR_CORRELATION_SPIKE: float = 0.80  # Trigger 7: avg pair correlation ceiling

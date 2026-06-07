@@ -2,17 +2,27 @@
 main.py — GHOST GRID Production Entry Point
 Full system: data pipeline + scoring + risk + execution + positions + nuclear + telegram.
 
+SOURCE: GHOST-GRID-MT5-Design.md (All components align with design spec)
+
 Startup sequence (10 steps):
   1.  Load config + validate .env
   2.  Init SQLite + run migrations
-  3.  Crash recovery (reconcile MT5 vs DB)
-  4.  Start Named Pipe bridge (reader + writer + health)
-  5.  Start feed router (per-symbol data pipelines)
-  6.  Start scoring pipeline (per-symbol scoring coroutines)
-  7.  Start nuclear controller (500ms portfolio guardian)
-  8.  Start watchdog OS thread (2s equity monitor)
-  9.  Start Telegram bot
+  3.  Crash recovery (reconcile MT5 vs DB) — Part VIII: Crash Recovery
+  4.  Start Named Pipe bridge (reader + writer + health) — Part I: IPC Bridge
+  5.  Start feed router (per-symbol data pipelines) — Part I: Data Architecture
+  6.  Start scoring pipeline (per-symbol scoring coroutines) — Part III: Confluence Engine
+  7.  Start nuclear controller (500ms portfolio guardian) — Part VI: Nuclear Controller
+  8.  Start watchdog OS thread (2s equity monitor) — Part VIII: Watchdog
+  9.  Start Telegram bot — Alerting system
   10. Await SIGTERM / SIGINT for graceful shutdown
+
+Key design decisions preserved:
+- MT5 Named Pipes for IPC (not ZeroMQ)
+- H_c = HMP + HLCP + MPP (0–180 range, regime-gated)
+- 4-layer exit system: profit trigger → trail → weakness → CVD divergence
+- 7 nuclear triggers (500ms polling)
+- SQLite WAL for crash-safe persistence
+- Independent OS watchdog thread (not asyncio)
 """
 
 from __future__ import annotations
@@ -23,9 +33,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from typing import Optional
-
 import structlog
-
 from config import get_settings
 from config.instruments import get_instrument
 from bridge.pipe_client import PipeClient

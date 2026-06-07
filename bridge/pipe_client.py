@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 
 class PipeClientMetrics:
     """Metrics for pipe client health and performance."""
+
     def __init__(self) -> None:
         self.connection_attempts: int = 0
         self.connection_failures: int = 0
@@ -86,24 +87,26 @@ class PipeClient:
     async def connect(self) -> None:
         """
         Open connection to MT5 pipe server.
-        
+
         Raises: Exception if connection fails after retries.
         """
         self._metrics.connection_attempts += 1
         loop = asyncio.get_event_loop()
         try:
-            self._handle = await loop.run_in_executor(
-                None, self._open_pipe
-            )
+            self._handle = await loop.run_in_executor(None, self._open_pipe)
             self._connected.set()
             self._connection_start_time = time.time()
             self._metrics.connection_successes += 1
-            log.info(f"Connected to MT5 pipe: {self._pipe_path}", 
-                    attempt=self._metrics.connection_attempts)
+            log.info(
+                f"Connected to MT5 pipe: {self._pipe_path} "
+                f"(attempt #{self._metrics.connection_attempts})"
+            )
         except Exception as e:
             self._metrics.connection_failures += 1
-            log.error(f"Failed to connect to pipe: {e}", 
-                     attempt=self._metrics.connection_attempts)
+            log.error(
+                f"Failed to connect to pipe: {e}",
+                attempt=self._metrics.connection_attempts,
+            )
             self._connected.clear()
             raise
 
@@ -111,13 +114,13 @@ class PipeClient:
         """
         Blocking pipe open. Retries on FILE_NOT_FOUND with 1s sleep
         until MT5 opens the pipe server.
-        
+
         WHY retry: MT5 EA may not have opened the pipe server yet when
         Python starts. Graceful retry avoids startup race condition.
         """
         retry_count = 0
         max_retries = 30  # 30 seconds max wait
-        
+
         while retry_count < max_retries:
             try:
                 handle = win32file.CreateFile(
@@ -154,9 +157,7 @@ class PipeClient:
         loop = asyncio.get_event_loop()
         async with self._read_lock:
             try:
-                data = await loop.run_in_executor(
-                    None, self._blocking_read
-                )
+                data = await loop.run_in_executor(None, self._blocking_read)
                 if data:
                     self._metrics.total_reads += 1
                     self._metrics.bytes_read += len(data)
@@ -192,9 +193,7 @@ class PipeClient:
         loop = asyncio.get_event_loop()
         async with self._write_lock:
             try:
-                await loop.run_in_executor(
-                    None, self._blocking_write, message
-                )
+                await loop.run_in_executor(None, self._blocking_write, message)
                 self._metrics.total_writes += 1
                 self._metrics.bytes_written += len(message) + 1  # +1 for newline
                 self._metrics.last_write_ts = time.time()
@@ -222,10 +221,12 @@ class PipeClient:
         if self._handle is not None:
             try:
                 win32file.CloseHandle(self._handle)
-                log.info("Pipe closed", 
-                        uptime_s=self._metrics.uptime_s,
-                        total_reads=self._metrics.total_reads,
-                        total_writes=self._metrics.total_writes)
+                log.info(
+                    "Pipe closed",
+                    uptime_s=self._metrics.uptime_s,
+                    total_reads=self._metrics.total_reads,
+                    total_writes=self._metrics.total_writes,
+                )
             except Exception as e:
                 log.warning(f"Error closing pipe: {e}")
             finally:

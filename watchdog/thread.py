@@ -19,6 +19,7 @@ import threading
 import time
 from typing import Optional, Callable
 
+from risk.constants import MAX_DAILY_LOSS, MAX_DAILY_GAIN
 from watchdog.emergency import emergency_nuclear_write
 
 logger = logging.getLogger(__name__)
@@ -85,9 +86,8 @@ class WatchdogThread:
         equity = snap.net_equity
         daily_pnl = snap.daily_pnl
 
-        # Thresholds (conservative — match nuclear triggers)
-        MAX_DAILY_LOSS = 0.04  # 4% daily loss limit
-        MAX_DAILY_GAIN = 0.15  # 15% daily gain target
+        # Thresholds from risk/constants.py (centralized authority)
+        # MAX_DAILY_LOSS = 0.04, MAX_DAILY_GAIN = 0.15
 
         # Daily loss limit breach — EMERGENCY NUCLEAR
         if daily_pnl <= -(equity * MAX_DAILY_LOSS):

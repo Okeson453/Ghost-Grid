@@ -2,11 +2,27 @@
 bridge/protocol.py
 IPC protocol definition for MT5 ↔ Python communication.
 
-Protocol uses text-based serialization over Windows Named Pipes.
+SOURCE: GHOST-GRID-MT5-Design.md § 1.1 IPC Bridge — Named Pipes Protocol
+
+Protocol uses text-based serialization over Windows Named Pipes (\\.\pipe\ghostgrid).
 Format: [VERSION_BYTE]|[TYPE]|[FIELD1]|[FIELD2]|...\n
 
-All messages are UTF-8 encoded. Inbound messages come from MT5 EA.
-Outbound messages are sent as commands to MT5 EA.
+Inbound messages (from MT5 EA every 200ms):
+  TICK|symbol|timestamp_ms|bid|ask|tick_volume|dominant_side|cvd_running
+  FILL|position_id|symbol|direction|fill_price|lots|mt5_ticket
+  REJECT|position_id|error_code|description
+  CLOSED|position_id|close_price|lots
+  HEARTBEAT|timestamp_ms
+
+Outbound commands (from Python to MT5 EA):
+  ORDER|position_id|symbol|direction|lot_size|entry_price|stop_loss
+  CLOSE|position_id
+  MODSTOP|position_id|new_stop
+  NUCLEAR_ALL (close all positions immediately)
+
+All messages are UTF-8 encoded, V1 protocol version.
+WHY text-based: Easy debugging, no binary serialization library needed.
+WHY V1 prefix: Allows protocol version negotiation without breaking existing EA.
 """
 
 from __future__ import annotations
@@ -180,12 +196,19 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
     Parse inbound message. Never raises — returns None on any error.
 
     Format: [VERSION]|[TYPE]|[FIELDS...]
+    Example: V1|TICK|EURUSD|1748823600123|1.08542|1.08545|1250|BUY|3421
+
+    Protocol envelope validation (design: Part I, Section 1.1):
+    - Version must be 'V1' (enforced, mismatch increments metric)
+    - Type must be one of: TICK, FILL, REJECT, CLOSED, HEARTBEAT
+    - Field count validated per message type
+    - All numeric fields validated for type and range
 
     WHY no exceptions: Pipe communication can receive garbage or partial
     messages during reconnect. Silent parse failure with logging is better
     than crashing the reader loop.
 
-    Validates all field types and ranges. Increments metrics for observability.
+    Increments metrics for observability — enables monitoring of parse health.
     """
     global _parse_metrics
 
@@ -235,6 +258,15 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
                 _parse_metrics.parse_errors += 1
                 return None
 
+            # Validate dominant_side enum (design: section 1.1)
+            dominant_side = parts[7]
+            if dominant_side not in ("BUY", "SELL", "NEUTRAL"):
+                _parse_metrics.validation_errors += 1
+                log.warning(
+                    f"Invalid dominant_side: {dominant_side} (expected BUY|SELL|NEUTRAL)"
+                )
+                return None
+
             _parse_metrics.tick_count += 1
             return TickMessage(
                 symbol=symbol,
@@ -242,12 +274,13 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
                 bid=bid,
                 ask=ask,
                 tick_volume=int(parts[6]),
-                dominant_side=parts[7],
+                dominant_side=dominant_side,
                 cvd_running=float(parts[8]),
             )
 
         elif msg_type == InboundType.FILL:
-            # FILL|position_id|symbol|direction|fill_price|lots|mt5_ticket
+            # FILL|V1|FILL|position_id|symbol|direction|fill_price|lots|mt5_ticket
+            # (Note: fields are parts[2..8] after version prefix split)
             if len(parts) < 8:
                 _parse_metrics.parse_errors += 1
                 return None
@@ -285,7 +318,9 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
         elif msg_type == InboundType.CLOSED:
             # CLOSED|position_id|close_price|lots
             if len(parts) < 5:
+                _parse_metrics.parse_errors += 1
                 return None
+            _parse_metrics.closed_count += 1
             return ClosedMessage(
                 position_id=parts[2],
                 close_price=float(parts[3]),

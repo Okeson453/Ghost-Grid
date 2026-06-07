@@ -2,9 +2,20 @@
 positions/state_machine.py
 Position state machine — one instance per open position.
 
+SOURCE: GHOST-GRID-MT5-Design.md § V Position Lifecycle & Exit Warfare
+
 State transitions driven by on_tick() events.
 All transitions are append-only logged to SQLite via db/writer.py.
 No transition is reversible — states only move forward.
+
+4-Layer Exit System (exact spec implementation):
+  Layer 1: Profit trigger ($1.50 unrealised) → arms trailing stop
+  Layer 2: Trailing stop execution (trail moves in favorable direction only)
+  Layer 3: Weakness detection (RSI(3) extreme + engulfing + volume cliff, all 3)
+  Layer 4: CVD divergence override (Z-score > 2.0 against position) — FASTEST EXIT
+
+Hard stop: MANDATORY at entry (1% risk boundary)
+Take-profit: NEVER hardcoded — all exits are state-driven
 
 Exit is triggered by returning an ExitReason from on_tick().
 The caller (registry.py) handles the actual close command dispatch.

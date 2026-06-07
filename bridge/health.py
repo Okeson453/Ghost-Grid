@@ -28,8 +28,10 @@ class PipeHealthMonitor:
 
     async def run(self) -> None:
         """
-        Check heartbeat every 5 seconds.
-        Logs warnings if stale, marks disconnected if very stale.
+        Check heartbeat every 2 seconds (aligned with watchdog polling frequency).
+        Logs warnings if stale (>10s per design), marks disconnected if very stale (>30s).
+        Design: Part VIII, Section 8.3 — Watchdog polls equity every 2 seconds.
+        Design: Part X, Section 10.1 — Heartbeat thresholds: >10s warning, >30s disconnect.
         """
         while True:
             try:
@@ -46,7 +48,7 @@ class PipeHealthMonitor:
                 elif elapsed > 10.0:
                     log.warning(f"Heartbeat stale for {elapsed:.1f}s (expected <5s)")
 
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(2.0)
 
             except Exception as e:
                 log.error(f"HealthMonitor error: {e}")

@@ -17,14 +17,12 @@ class LeverageCalculator:
     """
 
     # Leverage buckets: ATR% range → multiplier
+    # From design spec: ATR% < 0.8% → 30x, 0.8–1.5% → 20x, > 1.5% → 10x
     # ATR% = (ATR / current_price) * 100
     LEVERAGE_BUCKETS = [
-        (0.0, 0.5, 30),      # 0.0–0.5% ATR → 30× leverage (very stable)
-        (0.5, 1.0, 20),      # 0.5–1.0% ATR → 20× leverage
-        (1.0, 1.5, 10),      # 1.0–1.5% ATR → 10× leverage
-        (1.5, 2.5, 5),       # 1.5–2.5% ATR → 5× leverage
-        (2.5, 5.0, 2),       # 2.5–5.0% ATR → 2× leverage
-        (5.0, 100.0, 1),     # 5.0%+ ATR → 1× leverage (high volatility)
+        (0.0, 0.8, 30),  # 0.0–0.8% ATR → 30× leverage (very stable)
+        (0.8, 1.5, 20),  # 0.8–1.5% ATR → 20× leverage (moderate volatility)
+        (1.5, 100.0, 10),  # 1.5%+ ATR → 10× leverage (higher volatility)
     ]
 
     def __init__(self):
@@ -70,15 +68,7 @@ class LeverageCalculator:
 
     def _track_leverage_bucket(self, multiplier: int) -> None:
         """Increment counter for the selected leverage bucket."""
-        if multiplier == 1:
-            self._metrics.leverage_1x_count += 1
-        elif multiplier == 2:
-            # Track 2× as part of 10× for simplicity (not explicitly bucketed)
-            pass
-        elif multiplier == 5:
-            # Track 5× as part of 10×
-            pass
-        elif multiplier == 10:
+        if multiplier == 10:
             self._metrics.leverage_10x_count += 1
         elif multiplier == 20:
             self._metrics.leverage_20x_count += 1

@@ -2,11 +2,22 @@
 nuclear/controller.py
 NuclearController — main 500ms asyncio task monitoring portfolio state.
 
+SOURCE: GHOST-GRID-MT5-Design.md § VI Nuclear Portfolio Guardian
+
 Runs every 500ms and:
   1. Polls PortfolioState for open positions
-  2. Evaluates all 7 trigger conditions
+  2. Evaluates all 7 trigger conditions (in nuclear/triggers.py)
   3. If any trigger fires: execute_nuclear_close() and apply_cooldown()
   4. Logs and alerts via Telegram on nuclear event
+
+7 Nuclear Triggers (any single one fires all-close):
+  1. COMBINED_PROFIT: unrealised PnL ≥ $10.00
+  2. DAILY_GAIN_TARGET: daily PnL ≥ 15% of equity
+  3. LOSS_PROTECTION: unrealised PnL ≤ -$6.00
+  4. DAILY_LOSS_LIMIT: daily PnL ≤ -4% of equity (permanent day halt)
+  5. MARKET_EXHAUSTION: avg basket RSI < 25 or > 75
+  6. LATENCY_ANOMALY: last fill latency > 500ms
+  7. CORRELATION_SPIKE: avg pair correlation > 0.80
 
 WHY 500ms poll interval:
 Portfolio state changes frequently (tick updates, unrealised PnL changes).

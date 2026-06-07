@@ -23,6 +23,7 @@ from config import (
     RECONNECT_BACKOFF_BASE_S,
     RECONNECT_BACKOFF_MAX_S,
     RECONNECT_MAX_ATTEMPTS,
+    RECONNECT_PAUSE_THRESHOLD,
 )
 
 if TYPE_CHECKING:
@@ -35,6 +36,7 @@ log = logging.getLogger(__name__)
 
 class ReconnectMetrics:
     """Metrics for reconnection manager."""
+
     def __init__(self) -> None:
         self.total_reconnect_attempts: int = 0
         self.successful_reconnects: int = 0
@@ -127,12 +129,12 @@ class ReconnectManager:
                             self.pause_flag = False
                             self._metrics.successful_reconnects += 1
                             self._metrics.circuit_breaker_resets += 1
-                            
+
                             # Calculate downtime
                             downtime = time.time() - self._last_disconnect_ts
                             self._metrics.total_downtime_s += downtime
                             self._metrics.last_reconnect_ts = time.time()
-                            
+
                             self.crash_recovery_signal.set()
                             log.info(
                                 f"Reconnected after {downtime:.1f}s downtime. "

@@ -2,8 +2,22 @@
 risk/governor.py
 RiskGovernor — public API for the risk layer.
 
+SOURCE: GHOST-GRID-MT5-Design.md § IV Risk Governor
+
 Single entry point: governor.validate(order, portfolio) → ValidationResult
+
 Wraps validator.py with logging and metrics hooks.
+Implements 8-check validation chain (all must pass):
+  1. Day locked check (fastest)
+  2. Daily gain check (15% target)
+  3. Daily loss check (4% limit → hard stop)
+  4. Concurrent position cap (5 max)
+  5. Basket risk check (5% total heat)
+  6. Reward:Risk ratio (1.5x minimum)
+  7. Spread validation (0.12% max)
+  8. Margin utilization (80% max buffer)
+
+All limits are IMMUTABLE at runtime (defined in risk/constants.py).
 """
 
 from __future__ import annotations

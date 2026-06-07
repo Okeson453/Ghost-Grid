@@ -1,19 +1,23 @@
 """
 scoring/fusion.py
-H_c = HMP + HLCP + MPP  ·  Range: 0–180  ·  Direction: LONG | SHORT
+Confluence Engine: H_c = HMP + HLCP + MPP  ·  Range: 0–180  ·  Direction: LONG | SHORT
+
+SOURCE: GHOST-GRID-MT5-Design.md § III.1 Confluence Engine (H_c)
 
 Fusion algorithm:
-  1. Score LONG direction across all three strategies
+  1. Score LONG direction across all three strategies (HMP + HLCP + MPP)
   2. Score SHORT direction across all three strategies
-  3. The direction with the higher composite H_c wins
-  4. H_c is the winning direction's composite score, capped at 180
+  3. Return the direction with the higher composite H_c
+  4. H_c (winning direction) = sum of all three strategy scores (max 180)
 
 WHY score both directions and pick the winner:
 Scoring only one direction risks missing a high-conviction SHORT
 when the operator assumed LONG from session bias alone.
-Both directions are always evaluated; the market picks.
+Both directions are always evaluated; the market picks the winner.
 
+Output: ConfluenceScore(hmp, hlcp, mpp, composite, direction, regime, timestamp_ms)
 Called by: main.py scoring pipeline coroutine (once per MarketSnapshot)
+Next layer: output passed to scoring/gate.py (Schmitt hysteresis, § III.2)
 """
 
 from __future__ import annotations
