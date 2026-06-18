@@ -1,6 +1,8 @@
 """
 scoring/gate.py
-Schmitt-trigger hysteresis gate.
+Schmitt-trigger hysteresis gate — prevents false signal fires.
+
+SOURCE: GHOST-GRID-MT5-Design.md § III.2 Schmitt Hysteresis Gate
 
 WHY Schmitt hysteresis:
 A single high H_c score can result from momentary data alignment —
@@ -10,12 +12,23 @@ beyond a BOS level. Without hysteresis, the system would fire on noise.
 Requiring N=2 consecutive cycles above threshold ensures the signal
 is persistent and not a single-bar artefact.
 
-State per symbol: consecutive_above_threshold counter.
-  - Incremented each cycle H_c ≥ threshold
+Per-symbol state tracking:
+  - consecutive_above_threshold counter (incremented each H_c ≥ threshold)
   - Reset to 0 the moment H_c drops below threshold
   - FULL_AUTO fires when counter reaches SCHMITT_SUSTAIN_CYCLES (2)
 
-Thresholds are regime-adjusted (config/constants.py REGIME_THRESHOLDS).
+Regime-adjusted thresholds (config/constants.py REGIME_THRESHOLDS):
+  - TREND: 130 (reliable trend strength)
+  - CHOP: 155 (conservative choppy market)
+  - BREAKOUT: 140 (structure break confirmation)
+  - REVERSAL: 145 (momentum reversal)
+
+Gate decisions output:
+  - DISCARD: H_c below threshold - 20
+  - WATCHLIST: H_c within threshold band
+  - ALERT: 1st cycle above (Telegram notification only)
+  - FULL_AUTO: ≥2 consecutive cycles at threshold (execute order)
+  - FULL_AUTO_STRONG: ≥2 cycles at threshold + 20 (max size allowed)
 """
 
 from __future__ import annotations
@@ -93,15 +106,11 @@ class ConfluenceGate:
         if consecutive == 1 and composite >= threshold:
             cooldown = self._alert_cooldown.get(sym, 0)
             if cooldown == 0:
-                self._alert_cooldown[sym] = (
-                    10  # 10-cycle cooldown before next alert
-                )
+                self._alert_cooldown[sym] = 10  # 10-cycle cooldown before next alert
                 return GateDecision.ALERT
             else:
                 self._alert_cooldown[sym] = max(0, cooldown - 1)
-                return (
-                    GateDecision.DISCARD
-                )  # In cooldown — suppress alert
+                return GateDecision.DISCARD  # In cooldown — suppress alert
 
         # WATCHLIST: approaching threshold (within threshold - 20)
         if composite >= threshold - 20:

@@ -9,6 +9,9 @@ The SnapshotBuilder orchestrates multiple calculations:
 - VWAP with session reset
 - ATR (Wilder's) for volatility estimation
 - Regime classification (4-state)
+- CVD signal computation for MPP scoring layer
+
+Outputs: MarketSnapshot ready for scoring/fusion.py (H_c calculation)
 
 Returns None until the buffer has warmed up (20 M1 bars, 14 M5 bars).
 """

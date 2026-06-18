@@ -1,15 +1,29 @@
 """
 scoring/hmp/engine.py
-HMP Strategy 1 coordinator — Smart Money Structure.
+HMP Strategy 1 — Smart Money Structure Detection.
 
-Scoring rubric:
-  BOS:          max 20 pts  (20 if momentum>0.70, 10 if ≤0.70, -8 if MTF not aligned)
-  CHoCH:        max 15 pts  (15 if quality=high, 8 if med, 0 if low/none)
-  FVG:          max 15 pts  (15 if distance<0.5 ATR, 7 if found but further)
-  Order Block:  max 10 pts  (10 if fresh+imbalance>0.6, 4 if found, 0 if stale)
+SOURCE: GHOST-GRID-MT5-Design.md § III.3.1 HMP: Price Action
 
-Total possible: 60 (capped)
-Direction: determined by dominant signal (BOS direction takes precedence)
+Evaluates institutional footprint through 4 price action components:
+
+BOS (Break of Structure):
+  - max 20 pts (20 if momentum > 0.70, 10 if ≤ 0.70, -8 if MTF unaligned)
+  - Detects directional conviction when price violates prior swing
+
+CHoCH (Change of Character):
+  - max 15 pts (15 if high quality, 8 if medium, 0 if low/none)
+  - Confirms mood shift when momentum reverses mid-trend
+
+FVG (Fair Value Gap):
+  - max 15 pts (15 if distance < 0.5 ATR, 7 if found but further)
+  - Marks imbalance for reversal setup
+
+Order Block:
+  - max 10 pts (10 if fresh + imbalance > 0.6, 4 if found, 0 if stale)
+  - Identifies accumulation/distribution zones
+
+Total possible: 60 pts (capped)
+Direction determined by dominant signal (BOS takes precedence if conflicting).
 """
 
 from __future__ import annotations

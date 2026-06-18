@@ -1,13 +1,28 @@
 """
 scoring/mpp/engine.py
-MPP Strategy 3 coordinator — Institutional Footprint.
+MPP Strategy 3 — Market Profile & Institutional Footprint.
 
-Scoring rubric:
-  CVD divergence:    max 25 pts  (Z-score + directional alignment)
-  Session bias:      max 20 pts  (VWAP + bar consistency)
-  Absorption:        max 15 pts  (sweep-and-reclaim, HV rejection)
+SOURCE: GHOST-GRID-MT5-Design.md § III.3.3 MPP: Imbalance & Volume
 
-Total possible: 60 (no cap needed — rubric sums to exactly 60)
+Evaluates volume imbalances and cumulative delta divergence through 3 components:
+
+CVD Divergence:
+  - max 25 pts (Kalman-approximated cumulative delta, Z-score > 2.0)
+  - Exponential smoothing (α=0.15) approximates Kalman filter
+  - Detects when cumulative volume diverges from price direction
+  - Fastest exit signal when score exceeds threshold
+
+Session Bias:
+  - max 20 pts (VWAP alignment, bar consistency across session)
+  - VWAP tracks institutional entry prices
+  - Consistent bars above/below VWAP = conviction
+
+Absorption:
+  - max 15 pts (sweep-and-reclaim patterns, high-volume rejection)
+  - Identifies where liquidity dries up (absorption)
+  - HV rejection = price rejected at prior high-volume node
+
+Total: 60 pts (no cap needed — rubric sums exactly to 60)
 """
 
 from __future__ import annotations

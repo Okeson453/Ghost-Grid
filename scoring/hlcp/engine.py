@@ -1,14 +1,31 @@
 """
 scoring/hlcp/engine.py
-HLCP Strategy 2 coordinator — Trend + Liquidity Intelligence.
+HLCP Strategy 2 — Trend + Liquidity Intelligence.
 
-Scoring rubric:
-  Trend alignment:    max 25 pts  (EMA ribbon consensus + slope)
-  Liquidity void:     max 20 pts  (equal high/low distance)
-  Momentum decay:     max 15 pts  (RSI(7) extreme + volume cliff)
-  Kill-zone bonus:      5 pts     (London / NY Overlap session)
+SOURCE: GHOST-GRID-MT5-Design.md § III.3.2 HLCP: Confluence & Flow
 
-Total possible: 65 → capped at 60.
+Evaluates macro confluence and liquidity imbalances through 4 components:
+
+Trend Alignment:
+  - max 25 pts (EMA ribbon consensus, slope strength, session kill-zone bonus +5)
+  - 8/13/21/34-period EMA ribbon must be fanned (not compressed)
+  - Higher slope = stronger conviction
+  - London/NY overlap adds +5 pts (institutional activity hours)
+
+Liquidity Mapping:
+  - max 20 pts (equal highs/lows, unfilled FVG zones)
+  - Identifies price levels where smart money is likely watching
+  - ATR-normalized distance prevents false signals in volatile markets
+
+Momentum Decay:
+  - max 15 pts (RSI(7) extreme + volume cliff + divergence)
+  - Detects exhaustion before reversal
+  - All three signals must align for full points
+
+Kill-zone Session Bonus:
+  - +5 pts during London/NY overlap (high institutional activity)
+
+Total: 65 → capped at 60 pts
 """
 
 from __future__ import annotations
