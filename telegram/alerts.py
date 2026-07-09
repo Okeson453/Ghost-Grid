@@ -3,16 +3,18 @@ telegram/alerts.py
 Outbound alert dispatcher — sends formatted messages to Telegram.
 
 Uses python-telegram-bot async API.
-Rate limiting: max 30 messages/second to Telegram API (handled by library).
+Rate limiting: light fixed-window limiter implemented in the local Telegram alert path.
 """
 
 from __future__ import annotations
 import logging
+import time
+from collections import deque
 from typing import Any, Optional, TYPE_CHECKING
 
 try:
-    from telegram import Bot
-    from telegram.error import TelegramError
+    from .ext import Bot
+    from .error import TelegramError
     HAS_TELEGRAM = True
 except ImportError:  # pragma: no cover - exercised when dependency missing
     HAS_TELEGRAM = False
@@ -33,6 +35,31 @@ from telegram.formatter import (
 logger = logging.getLogger(__name__)
 
 _bot: Optional[Bot] = None
+
+
+class TelegramRateLimiter:
+    """Simple fixed-window limiter for outbound Telegram messages."""
+
+    def __init__(self, max_messages: int = 4, window_seconds: int = 60) -> None:
+        self.max_messages = max_messages
+        self.window_seconds = window_seconds
+        self._timestamps: deque[float] = deque()
+
+    def allow(self, priority: str = "normal") -> bool:
+        if priority == "high":
+            return True
+
+        now = time.monotonic()
+        while self._timestamps and now - self._timestamps[0] > self.window_seconds:
+            self._timestamps.popleft()
+
+        if len(self._timestamps) < self.max_messages:
+            self._timestamps.append(now)
+            return True
+        return False
+
+
+_rate_limiter = TelegramRateLimiter()
 
 
 class GhostGridTelegram:
@@ -67,7 +94,7 @@ async def send_signal_alert(score: "ConfluenceScore", decision: "GateDecision") 
 
 async def send_nuclear_alert(event: "NuclearEvent", cooldown: Optional[Any] = None) -> None:
     """Send nuclear exit alert to Telegram, optionally including cooldown context."""
-    await _send(format_nuclear_alert(event, cooldown))
+    await _send(format_nuclear_alert(event, cooldown), priority="high")
 
 
 async def send_status(state: "PortfolioState") -> None:
@@ -82,7 +109,7 @@ async def send_daily_report(
     await _send(format_daily_report(state, trades, wins))
 
 
-async def _send(text: str) -> None:
+async def _send(text: str, priority: str = "normal") -> None:
     """
     Core send method — handles errors without crashing.
 
@@ -90,6 +117,10 @@ async def _send(text: str) -> None:
     """
     if not HAS_TELEGRAM:
         logger.warning("Telegram not installed — message not sent")
+        return
+
+    if not _rate_limiter.allow(priority):
+        logger.warning("Telegram rate limit hit — message suppressed")
         return
 
     settings = get_settings()

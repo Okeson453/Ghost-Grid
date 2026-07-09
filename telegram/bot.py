@@ -8,7 +8,7 @@ Only the authorised chat can send commands.
 
 from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 try:
     from telegram.ext import Application, CommandHandler, filters
@@ -19,6 +19,7 @@ except ImportError:
 if TYPE_CHECKING:
     from portfolio.state import PortfolioState
     from nuclear.controller import NuclearController
+    from db.connection import ConnectionPool
 
 from config import get_settings
 from telegram.commands import (
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 def build_application(
     portfolio_state: "PortfolioState",
     nuclear_controller: "NuclearController",
+    db_pool: Optional["ConnectionPool"] = None,
 ) -> Application:
     """
     Build the Telegram bot Application with all command handlers.
@@ -42,6 +44,7 @@ def build_application(
     Args:
         portfolio_state:       Live PortfolioState instance
         nuclear_controller:    NuclearController instance
+        db_pool:              Optional ConnectionPool for audit logging
 
     Returns:
         Configured Application (not yet running)
@@ -59,6 +62,8 @@ def build_application(
     # Inject dependencies via bot_data
     app.bot_data["portfolio_state"] = portfolio_state
     app.bot_data["nuclear_controller"] = nuclear_controller
+    if db_pool:
+        app.bot_data["db_pool"] = db_pool
 
     # Command filter: only respond to the authorised chat ID
     chat_filter = filters.Chat(chat_id=int(settings.telegram_chat_id))

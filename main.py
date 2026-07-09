@@ -69,6 +69,8 @@ from telegram.bot import build_application
 from telegram.alerts import send_signal_alert, send_nuclear_alert, _send
 from observability.metrics import record_score
 from observability.drift_detector import check_drift
+from observability.trade_journal import record_opened, record_closed
+from observability.daily_report import generate_daily_report
 
 # ── Logging ────────────────────────────────────────────────────────────────
 structlog.configure(
@@ -113,15 +115,27 @@ async def on_snapshot(snap: MarketSnapshot) -> None:
         exits = await position_registry.process_tick(snap, portfolio_state)
         # Handle any exits triggered by state machine updates
         for position_id, exit_reason in exits:
-            await commander.close_position(snap.symbol, position_id, exit_reason)
-            realized_pnl = (
-                position_registry.get_position(position_id)._calc_pnl(snap.tick.mid)
-                if position_registry.get_position(position_id)
-                else 0.0
-            )
-            position_registry.remove_position(
-                position_id, realized_pnl, portfolio_state
-            )
+            pos = position_registry.get_position(position_id)
+            if pos:
+                realized_pnl = pos._calc_pnl(snap.tick.mid)
+                await commander.close_position(snap.symbol, position_id, exit_reason)
+                # Record to trade journal
+                try:
+                    record_closed(
+                        position_id=position_id,
+                        symbol=pos.symbol,
+                        direction=pos.direction,
+                        entry_price=pos.entry,
+                        exit_price=snap.tick.mid,
+                        lot_size=pos.lots,
+                        realized_pnl=realized_pnl,
+                        exit_reason=str(exit_reason),
+                    )
+                except Exception as e:
+                    log.error("trade_journal_close_error", position_id=position_id, error=str(e))
+                position_registry.remove_position(
+                    position_id, realized_pnl, portfolio_state
+                )
 
     # ── Score new signal ─────────────────────────────────────────────────
     try:
@@ -262,6 +276,17 @@ async def on_snapshot(snap: MarketSnapshot) -> None:
             mt5_ticket=fill.mt5_ticket,
             open_ts=int(time.time() * 1000),
         )
+        # Record to trade journal
+        record_opened(
+            position_id=pid,
+            symbol=snap.symbol,
+            direction=score.direction,
+            entry_price=fill.fill_price,
+            lot_size=fill.lots,
+            stop_loss=stop_loss,
+            hc_score=score.composite,
+            regime=score.regime,
+        )
     except Exception as e:
         log.error("position_persist_error", position_id=pid, error=str(e))
 
@@ -353,6 +378,31 @@ async def daily_reset_task() -> None:
         await asyncio.sleep(wait_s)
 
         if portfolio_state and ledger:
+            # Generate end-of-day report before reset
+            try:
+                report = generate_daily_report(
+                    starting_equity=portfolio_state.starting_equity,
+                    ending_equity=portfolio_state.net_equity,
+                    realized_pnl=portfolio_state.realized_pnl,
+                    unrealized_pnl=portfolio_state.unrealized_pnl,
+                    open_position_count=portfolio_state.open_position_count,
+                    nuclear_count=portfolio_state.nuclear_count_today,
+                    drift_status="OK",
+                )
+                log.info(
+                    "daily_report_generated",
+                    date=report.date_utc,
+                    equity=report.summary.get("ending_equity"),
+                )
+                # Send report via Telegram if available
+                try:
+                    await _send(report.to_telegram_message())
+                except Exception as e:
+                    log.error("daily_report_telegram_error", error=str(e))
+            except Exception as e:
+                log.error("daily_report_generation_error", error=str(e))
+
+            # Reset daily tracking
             ledger.reset_daily(portfolio_state, portfolio_state.net_equity)
             log.info("daily_reset_complete")
 

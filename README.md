@@ -185,7 +185,7 @@ MT5_LOGIN=<broker-login>
 MT5_PASSWORD=<broker-password>
 MT5_SERVER=<broker-server-address>
 
-PIPE_PATH=\\.\pipe\ghost_grid_commands
+PIPE_PATH=\\.\.\pipe\ghostgrid
 
 PAPER_TRADING=true              # Start in paper trading mode
 LOG_LEVEL=INFO

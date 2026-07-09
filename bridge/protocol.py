@@ -18,7 +18,12 @@ Outbound commands (from Python to MT5 EA):
   ORDER|position_id|symbol|direction|lot_size|entry_price|stop_loss
   CLOSE|position_id
   MODSTOP|position_id|new_stop
-  NUCLEAR_ALL (close all positions immediately)
+  NUCLEAR_ALL (close all positions immediately — sent by NuclearController)
+
+Emergency nuclear pathway (bypasses versioning):
+  The watchdog thread sends plain NUCLEAR_ALL\n directly to the pipe to ensure
+  the message reaches the EA even if the main event loop is stalled. This bypasses
+  the standard protocol versioning layer for maximum reliability.
 
 All messages are UTF-8 encoded, V1 protocol version.
 WHY text-based: Easy debugging, no binary serialization library needed.
@@ -26,12 +31,26 @@ WHY V1 prefix: Allows protocol version negotiation without breaking existing EA.
 """
 
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union
 
 from config import get_instrument
+from security.sanitization import (
+    sanitize_symbol,
+    sanitize_position_id,
+    sanitize_direction,
+    sanitize_price,
+    sanitize_volume,
+    sanitize_lots,
+    sanitize_timestamp_ms,
+    sanitize_error_code,
+    sanitize_dominant_side,
+    sanitize_description,
+)
 
+logger = logging.getLogger(__name__)
 
 # Protocol constants
 PROTOCOL_VERSION = "V1"
@@ -152,7 +171,14 @@ def build_modstop_command(position_id: str, new_stop: float) -> str:
 
 
 def build_nuclear_command() -> str:
-    """Build NUCLEAR_ALL command string for MT5."""
+    """
+    Build NUCLEAR_ALL command string for MT5 using the standard protocol.
+    
+    DESIGN NOTE: This builds the versioned format V1|NUCLEAR_ALL\n for use by the main
+    trading loop (NuclearController.execute_nuclear). The emergency watchdog bypasses
+    this function and writes plain NUCLEAR_ALL\n directly to the pipe to avoid any
+    async machinery stalls. Both pathways are valid; the EA accepts both formats.
+    """
     return f"{PROTOCOL_VERSION}{FIELD_SEP}{OutboundType.NUCLEAR_ALL}{LINE_TERM}"
 
 
@@ -193,7 +219,7 @@ def get_parse_metrics() -> ParseMetrics:
 
 def parse_inbound(raw: str) -> Optional[ParseResult]:
     """
-    Parse inbound message. Never raises — returns None on any error.
+    Parse inbound message with input sanitization. Never raises — returns None on any error.
 
     Format: [VERSION]|[TYPE]|[FIELDS...]
     Example: V1|TICK|EURUSD|1748823600123|1.08542|1.08545|1250|BUY|3421
@@ -202,6 +228,7 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
     - Version must be 'V1' (enforced, mismatch increments metric)
     - Type must be one of: TICK, FILL, REJECT, CLOSED, HEARTBEAT
     - Field count validated per message type
+    - All string fields sanitized (length limits, character whitelist)
     - All numeric fields validated for type and range
 
     WHY no exceptions: Pipe communication can receive garbage or partial
@@ -241,64 +268,137 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
                 _parse_metrics.parse_errors += 1
                 return None
 
-            # Validate symbol is non-empty and reasonable
-            symbol = parts[2]
-            if not symbol or len(symbol) > 10:
+            # SANITIZE: symbol with character whitelist
+            symbol = sanitize_symbol(parts[2])
+            if symbol is None:
                 _parse_metrics.validation_errors += 1
+                logger.warning(f"Invalid symbol: {parts[2]}")
                 return None
 
-            # Validate bid/ask are positive and ask >= bid
+            # SANITIZE: timestamp
             try:
-                bid = float(parts[4])
-                ask = float(parts[5])
-                if bid <= 0 or ask <= 0 or ask < bid:
+                timestamp_ms = sanitize_timestamp_ms(int(parts[3]))
+                if timestamp_ms is None:
                     _parse_metrics.validation_errors += 1
+                    logger.warning(f"Invalid timestamp: {parts[3]}")
                     return None
-            except ValueError:
+            except (ValueError, TypeError):
                 _parse_metrics.parse_errors += 1
                 return None
 
-            # Validate dominant_side enum (design: section 1.1)
-            dominant_side = parts[7]
-            if dominant_side not in ("BUY", "SELL", "NEUTRAL"):
+            # SANITIZE: bid/ask prices with range check
+            try:
+                bid = float(parts[4])
+                ask = float(parts[5])
+                bid = sanitize_price(bid)
+                ask = sanitize_price(ask)
+                if bid is None or ask is None or ask < bid:
+                    _parse_metrics.validation_errors += 1
+                    logger.warning(f"Invalid bid/ask: {bid}/{ask}")
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
+            # SANITIZE: tick volume with range check
+            try:
+                tick_volume = sanitize_volume(int(parts[6]))
+                if tick_volume is None:
+                    _parse_metrics.validation_errors += 1
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
+            # SANITIZE: dominant_side with enum whitelist
+            dominant_side = sanitize_dominant_side(parts[7])
+            if dominant_side is None:
                 _parse_metrics.validation_errors += 1
-                log.warning(
-                    f"Invalid dominant_side: {dominant_side} (expected BUY|SELL|NEUTRAL)"
-                )
+                logger.warning(f"Invalid dominant_side: {parts[7]}")
+                return None
+
+            # SANITIZE: CVD running (float, no range limit but must be valid)
+            try:
+                cvd_running = float(parts[8])
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
                 return None
 
             _parse_metrics.tick_count += 1
             return TickMessage(
                 symbol=symbol,
-                timestamp_ms=int(parts[3]),
+                timestamp_ms=timestamp_ms,
                 bid=bid,
                 ask=ask,
-                tick_volume=int(parts[6]),
+                tick_volume=tick_volume,
                 dominant_side=dominant_side,
-                cvd_running=float(parts[8]),
+                cvd_running=cvd_running,
             )
 
         elif msg_type == InboundType.FILL:
-            # FILL|V1|FILL|position_id|symbol|direction|fill_price|lots|mt5_ticket
-            # (Note: fields are parts[2..8] after version prefix split)
-            if len(parts) < 8:
+            # FILL|position_id|symbol|direction|fill_price|lots|mt5_ticket
+            if len(parts) < 9:
                 _parse_metrics.parse_errors += 1
                 return None
 
-            # Validate direction
-            direction = parts[4]
-            if direction not in ("BUY", "SELL"):
+            # SANITIZE: position_id with character whitelist
+            position_id = sanitize_position_id(parts[2])
+            if position_id is None:
                 _parse_metrics.validation_errors += 1
+                logger.warning(f"Invalid position_id: {parts[2]}")
+                return None
+
+            # SANITIZE: symbol
+            symbol = sanitize_symbol(parts[3])
+            if symbol is None:
+                _parse_metrics.validation_errors += 1
+                logger.warning(f"Invalid symbol: {parts[3]}")
+                return None
+
+            # SANITIZE: direction enum
+            direction = sanitize_direction(parts[4])
+            if direction is None:
+                _parse_metrics.validation_errors += 1
+                logger.warning(f"Invalid direction: {parts[4]}")
+                return None
+
+            # SANITIZE: fill_price
+            try:
+                fill_price = float(parts[5])
+                fill_price = sanitize_price(fill_price)
+                if fill_price is None:
+                    _parse_metrics.validation_errors += 1
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
+            # SANITIZE: lots
+            try:
+                lots = float(parts[6])
+                lots = sanitize_lots(lots)
+                if lots is None:
+                    _parse_metrics.validation_errors += 1
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
+            # mt5_ticket: integer, no sanitization needed beyond type check
+            try:
+                mt5_ticket = int(parts[7])
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
                 return None
 
             _parse_metrics.fill_count += 1
             return FillMessage(
-                position_id=parts[2],
-                symbol=parts[3],
+                position_id=position_id,
+                symbol=symbol,
                 direction=direction,
-                fill_price=float(parts[5]),
-                lots=float(parts[6]),
-                mt5_ticket=int(parts[7]),
+                fill_price=fill_price,
+                lots=lots,
+                mt5_ticket=mt5_ticket,
             )
 
         elif msg_type == InboundType.REJECT:
@@ -306,12 +406,34 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
             if len(parts) < 4:
                 _parse_metrics.parse_errors += 1
                 return None
-            # Rejoin description in case it contains pipes
+
+            # SANITIZE: position_id
+            position_id = sanitize_position_id(parts[2])
+            if position_id is None:
+                _parse_metrics.validation_errors += 1
+                return None
+
+            # SANITIZE: error_code
+            try:
+                error_code = sanitize_error_code(int(parts[3]))
+                if error_code is None:
+                    _parse_metrics.validation_errors += 1
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
+            # SANITIZE: description (rejoin in case it contains pipes, remove control chars)
             description = FIELD_SEP.join(parts[4:])
+            description = sanitize_description(description)
+            if description is None:
+                _parse_metrics.validation_errors += 1
+                return None
+
             _parse_metrics.reject_count += 1
             return RejectMessage(
-                position_id=parts[2],
-                error_code=int(parts[3]),
+                position_id=position_id,
+                error_code=error_code,
                 description=description,
             )
 
@@ -320,23 +442,65 @@ def parse_inbound(raw: str) -> Optional[ParseResult]:
             if len(parts) < 5:
                 _parse_metrics.parse_errors += 1
                 return None
+
+            # SANITIZE: position_id
+            position_id = sanitize_position_id(parts[2])
+            if position_id is None:
+                _parse_metrics.validation_errors += 1
+                return None
+
+            # SANITIZE: close_price
+            try:
+                close_price = float(parts[3])
+                close_price = sanitize_price(close_price)
+                if close_price is None:
+                    _parse_metrics.validation_errors += 1
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
+            # SANITIZE: lots
+            try:
+                lots = float(parts[4])
+                lots = sanitize_lots(lots)
+                if lots is None:
+                    _parse_metrics.validation_errors += 1
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
             _parse_metrics.closed_count += 1
             return ClosedMessage(
-                position_id=parts[2],
-                close_price=float(parts[3]),
-                lots=float(parts[4]),
+                position_id=position_id,
+                close_price=close_price,
+                lots=lots,
             )
 
         elif msg_type == InboundType.HEARTBEAT:
             # HEARTBEAT|timestamp_ms
             if len(parts) < 3:
+                _parse_metrics.parse_errors += 1
                 return None
-            return HeartbeatMessage(timestamp_ms=int(parts[2]))
+
+            try:
+                timestamp_ms = sanitize_timestamp_ms(int(parts[2]))
+                if timestamp_ms is None:
+                    _parse_metrics.validation_errors += 1
+                    return None
+            except (ValueError, TypeError):
+                _parse_metrics.parse_errors += 1
+                return None
+
+            _parse_metrics.heartbeat_count += 1
+            return HeartbeatMessage(timestamp_ms=timestamp_ms)
 
         else:
             # Unknown message type
             return None
 
-    except (ValueError, IndexError, TypeError):
-        # Malformed message
+    except Exception as e:
+        logger.error(f"Parse error (generic): {e}")
+        _parse_metrics.parse_errors += 1
         return None

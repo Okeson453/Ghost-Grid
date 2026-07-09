@@ -8,7 +8,7 @@ from telegram import alerts
 def test_send_nuclear_alert_accepts_cooldown_and_includes_it(monkeypatch):
     captured = {}
 
-    async def fake_send(text: str) -> None:
+    async def fake_send(text: str, **kwargs) -> None:
         captured["text"] = text
 
     monkeypatch.setattr(alerts, "_send", fake_send)
@@ -43,6 +43,7 @@ def test_rate_limiter_suppresses_excess_messages(monkeypatch):
         alerts.TelegramRateLimiter(max_messages=1, window_seconds=60),
     )
     monkeypatch.setattr(alerts.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(alerts, "get_settings", lambda: SimpleNamespace(telegram_chat_id="123"))
 
     asyncio.run(alerts._send("first"))
     asyncio.run(alerts._send("second"))
