@@ -195,6 +195,11 @@ def get_detector() -> DriftDetector:
     return _detector
 
 
+def compute_win_rate(lookback: int | None = None) -> Optional[float]:
+    """Compute live win rate from the global drift detector."""
+    return get_detector().compute_win_rate(lookback)
+
+
 def check_drift(lookback: int | None = None) -> DriftAlert:
     """
     Check for statistical drift between live and backtest performance.

@@ -4,7 +4,6 @@ from .models import ConfluenceScore, GateDecision, HMPResult, HLCPResult, MPPRes
 from .hmp import calculate_hmp
 from .hlcp import calculate_hlcp
 from .mpp import calculate_mpp
-from .direction import determine_direction
 
 __all__ = [
     "score_confluence",
@@ -18,5 +17,4 @@ __all__ = [
     "calculate_hmp",
     "calculate_hlcp",
     "calculate_mpp",
-    "determine_direction",
 ]

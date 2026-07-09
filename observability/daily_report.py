@@ -98,7 +98,14 @@ class DailyReporter:
         metrics_csv: Optional[str] = None,
         trades_csv: Optional[str] = None,
         reports_csv: Optional[str] = None,
+        output_dir: Optional[str] = None,
     ) -> None:
+        if output_dir is not None:
+            base_dir = Path(output_dir)
+            metrics_csv = str(base_dir / "metrics.csv")
+            trades_csv = str(base_dir / "trades.csv")
+            reports_csv = str(base_dir / "daily_reports.csv")
+
         self.metrics_csv = Path(metrics_csv or "./data_store/metrics.csv")
         self.trades_csv = Path(trades_csv or "./data_store/trades.csv")
         self.reports_csv = Path(reports_csv or "./data_store/daily_reports.csv")
@@ -185,6 +192,7 @@ class DailyReporter:
         max_hc = score_stats["max_hc"]
         primary_regime = score_stats["primary_regime"]
         signals_fired = score_stats["signals_fired"]
+        regime_breakdown = score_stats.get("regime_breakdown", {})
 
         report = DailyReport(
             date_utc=date_utc,
@@ -213,6 +221,7 @@ class DailyReporter:
                 "avg_hc": avg_hc,
                 "max_hc": max_hc,
                 "primary_regime": primary_regime,
+                "regime_breakdown": regime_breakdown,
             },
             drift={
                 "status": drift_status,
@@ -276,7 +285,7 @@ class DailyReporter:
             "closed_count": len(closed_trades),
             "win_rate_pct": win_rate,
             "avg_win_usd": avg_win,
-            "avg_loss_usd": avg_loss,
+            "avg_loss_usd": abs(avg_loss),
             "profit_factor": profit_factor,
         }
 
@@ -328,6 +337,7 @@ class DailyReporter:
                 "avg_hc": 0.0,
                 "max_hc": 0,
                 "primary_regime": "UNKNOWN",
+                "regime_breakdown": {},
                 "signals_fired": 0,
             }
 
@@ -342,6 +352,7 @@ class DailyReporter:
             "avg_hc": avg_hc,
             "max_hc": int(max_hc),
             "primary_regime": primary_regime,
+            "regime_breakdown": regimes,
             "signals_fired": signals_fired,
         }
 

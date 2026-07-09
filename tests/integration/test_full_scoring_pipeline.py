@@ -6,7 +6,7 @@ End-to-end tests for the complete HMP + HLCP + MPP scoring pipeline.
 import pytest
 from scoring import (
     calculate_hmp, calculate_hlcp, calculate_mpp,
-    determine_direction, score_confluence, ConfluenceGate
+    score_confluence, ConfluenceGate
 )
 from scoring.models import HMPResult, HLCPResult, MPPResult, ConfluenceScore, GateDecision
 from regime.classifier import classify_regime
@@ -45,11 +45,21 @@ class TestFullScoringPipeline:
         assert 0 <= result.score <= 60
         assert result.direction == "LONG"
 
-    def test_direction_determination_consistent(self):
-        """determine_direction() returns valid direction."""
-        snap = make_snapshot(m1=make_bullish_trend(count=50))
-        direction = determine_direction(snap)
-        assert direction in ("LONG", "SHORT")
+    def test_score_confluence_returns_valid_direction(self):
+        """score_confluence() chooses a valid winner direction."""
+        snap = make_snapshot(
+            symbol="EURUSD",
+            m1=make_bullish_trend(count=50),
+            m5=make_bullish_trend(count=50),
+            cvd_history=list(range(30)),
+            session="LONDON",
+            atr_1m=0.0010,
+            atr_5m=0.0012,
+        )
+        score = score_confluence(snap)
+        assert isinstance(score, ConfluenceScore)
+        assert score.direction in ("LONG", "SHORT")
+        assert 0 <= score.composite <= 180
 
     def test_regime_classification_valid(self):
         """Regime classifier returns one of four states."""

@@ -25,7 +25,15 @@ class TradeJournal:
     One row per closed position with full entry/exit metadata.
     """
 
-    def __init__(self, csv_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        csv_path: Optional[str] = None,
+        output_dir: Optional[str] = None,
+    ) -> None:
+        if output_dir is not None:
+            base_dir = Path(output_dir)
+            csv_path = str(base_dir / "trades.csv")
+
         if csv_path is None:
             csv_path = "./data_store/trades.csv"
         self.csv_path = Path(csv_path)

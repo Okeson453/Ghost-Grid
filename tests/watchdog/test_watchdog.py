@@ -101,6 +101,41 @@ def test_watchdog_poll_extreme_gain():
     watchdog._poll()
 
 
+def test_emergency_nuclear_write_uses_design_pipe_payload(monkeypatch):
+    """Emergency writes should target the design-spec pipe and payload."""
+    calls = []
+
+    class FakePipe:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, payload):
+            self.writes.append(payload)
+
+        def flush(self):
+            return None
+
+        def close(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_open(path, *args, **kwargs):
+        calls.append(path)
+        return FakePipe()
+
+    monkeypatch.setattr("builtins.open", fake_open)
+
+    result = emergency_nuclear_write(pipe_path=r"\\.\pipe\ghostgrid")
+
+    assert result is True
+    assert calls == [r"\\.\pipe\ghostgrid"]
+
+
 def test_emergency_nuclear_write_no_win32():
     """Test emergency write handles missing win32."""
     # When win32 not available, should return False gracefully

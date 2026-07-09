@@ -2,11 +2,9 @@
 watchdog/emergency.py
 Emergency pipe writer — OS thread safe, asyncio-independent.
 
-WHY bypass asyncio:
-If the main asyncio event loop deadlocks or stalls, the watchdog
-cannot await pipe operations. It must write synchronously.
-
-This is the last line of defence.
+The design specification requires a synchronous named-pipe write that
+bypasses the main event loop. It uses the MT5 bridge pipe directly and
+sends the plain NUCLEAR_ALL\n payload.
 """
 
 from __future__ import annotations
@@ -14,39 +12,26 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PIPE_PATH = r"\\.\pipe\ghostgrid"
+DEFAULT_NUCLEAR_PAYLOAD = b"NUCLEAR_ALL\n"
 
-def emergency_nuclear_write(pipe_path: str = r"\\.\pipe\ghost_grid_commands") -> bool:
+
+def emergency_nuclear_write(
+    pipe_path: str = DEFAULT_PIPE_PATH,
+    payload: bytes = DEFAULT_NUCLEAR_PAYLOAD,
+) -> bool:
     """
-    Write NUCLEAR_ALL command to the pipe synchronously.
-    Does NOT wait for confirmation — fire and forget.
-    
-    Args:
-        pipe_path: Windows named pipe path
-        
-    Returns:
-        True if write succeeded
+    Write the emergency stop command to the named pipe synchronously.
+
+    The message is fire-and-forget: the function returns as soon as the
+    write attempt completes, without waiting for confirmation.
     """
     try:
-        import win32file
-        import pywintypes
-    except ImportError:
-        logger.critical("emergency_nuclear_write: win32 not available (non-Windows)")
-        return False
-
-    cmd = b"V1|NUCLEAR_ALL\n"
-
-    try:
-        handle = win32file.CreateFile(
-            pipe_path,
-            win32file.GENERIC_WRITE,
-            0, None,
-            win32file.OPEN_EXISTING,
-            0, None,
-        )
-        win32file.WriteFile(handle, cmd)
-        win32file.CloseHandle(handle)
+        with open(pipe_path, "r+b", buffering=0) as pipe_handle:
+            pipe_handle.write(payload)
+            pipe_handle.flush()
         logger.critical("Emergency NUCLEAR_ALL sent via sync pipe write")
         return True
-    except Exception as e:
-        logger.critical(f"Emergency pipe write failed: {e}")
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        logger.critical("Emergency pipe write failed: %s", exc)
         return False

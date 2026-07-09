@@ -14,14 +14,13 @@ All handlers receive injected dependencies via context.bot_data.
 
 from __future__ import annotations
 import logging
-import time
 from typing import TYPE_CHECKING
 
 try:
     from telegram import Update
     from telegram.ext import ContextTypes
     HAS_TELEGRAM = True
-except ImportError:
+except ImportError:  # pragma: no cover - exercised when dependency missing
     HAS_TELEGRAM = False
 
 if TYPE_CHECKING:
@@ -36,12 +35,15 @@ logger = logging.getLogger(__name__)
 async def cmd_nuke(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """
     /nuke — Immediate manual nuclear exit.
-    
+
     WHY authorised only: any message reaching this handler is from
     the configured chat_id (enforced by bot.py filter).
     """
     await update.message.reply_text("☢️ Manual nuclear initiated...")
-    nuclear_controller: "NuclearController" = ctx.bot_data["nuclear_controller"]
+    nuclear_controller = ctx.bot_data.get("nuclear_controller")
+    if nuclear_controller is None:
+        await update.message.reply_text("⚠️ Nuclear controller unavailable")
+        return
     await nuclear_controller.force_nuclear("MANUAL_TELEGRAM")
     await update.message.reply_text("✅ All positions closed.")
 

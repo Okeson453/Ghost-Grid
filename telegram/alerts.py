@@ -8,13 +8,13 @@ Rate limiting: max 30 messages/second to Telegram API (handled by library).
 
 from __future__ import annotations
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 try:
     from telegram import Bot
     from telegram.error import TelegramError
     HAS_TELEGRAM = True
-except ImportError:
+except ImportError:  # pragma: no cover - exercised when dependency missing
     HAS_TELEGRAM = False
 
 if TYPE_CHECKING:
@@ -35,6 +35,22 @@ logger = logging.getLogger(__name__)
 _bot: Optional[Bot] = None
 
 
+class GhostGridTelegram:
+    """Thin adapter matching the design-spec Telegram control interface."""
+
+    async def send_signal_alert(self, score: "ConfluenceScore", decision: "GateDecision") -> None:
+        await send_signal_alert(score, decision)
+
+    async def send_nuclear_alert(self, event: "NuclearEvent", cooldown: Optional[Any] = None) -> None:
+        await send_nuclear_alert(event, cooldown)
+
+    async def send_status(self, state: "PortfolioState") -> None:
+        await send_status(state)
+
+    async def send_daily_report(self, state: "PortfolioState", trades: int, wins: int) -> None:
+        await send_daily_report(state, trades, wins)
+
+
 def get_bot() -> Bot:
     """Get or create the Telegram bot instance."""
     global _bot
@@ -49,9 +65,9 @@ async def send_signal_alert(score: "ConfluenceScore", decision: "GateDecision") 
     await _send(format_signal_alert(score, decision))
 
 
-async def send_nuclear_alert(event: "NuclearEvent") -> None:
-    """Send nuclear exit alert to Telegram."""
-    await _send(format_nuclear_alert(event))
+async def send_nuclear_alert(event: "NuclearEvent", cooldown: Optional[Any] = None) -> None:
+    """Send nuclear exit alert to Telegram, optionally including cooldown context."""
+    await _send(format_nuclear_alert(event, cooldown))
 
 
 async def send_status(state: "PortfolioState") -> None:
@@ -69,7 +85,7 @@ async def send_daily_report(
 async def _send(text: str) -> None:
     """
     Core send method — handles errors without crashing.
-    
+
     Never raises exceptions — all errors logged.
     """
     if not HAS_TELEGRAM:
@@ -83,7 +99,7 @@ async def _send(text: str) -> None:
             text=text,
             parse_mode="HTML",
         )
-    except TelegramError as e:
-        logger.error(f"Telegram send error: {e}")
-    except Exception as e:
-        logger.error(f"Telegram unexpected error: {e}", exc_info=True)
+    except TelegramError as exc:
+        logger.error("Telegram send error: %s", exc)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.exception("Telegram unexpected error: %s", exc)

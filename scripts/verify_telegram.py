@@ -78,7 +78,7 @@ try:
     print("✓ format_nuclear_alert works")
 
     # Test status format
-    state = PortfolioState(net_equity=10000, daily_pnl=100)
+    state = PortfolioState(net_equity=10000, realized_pnl=100)
     formatted = format_status(state)
     assert "STATUS" in formatted
     assert "$10000.00" in formatted

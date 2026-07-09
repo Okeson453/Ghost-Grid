@@ -15,7 +15,6 @@ import csv
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
-from config import get_settings
 from scoring.models import ConfluenceScore, GateDecision
 
 

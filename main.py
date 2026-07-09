@@ -67,7 +67,7 @@ from nuclear.controller import NuclearController
 from watchdog.thread import WatchdogThread
 from telegram.bot import build_application
 from telegram.alerts import send_signal_alert, send_nuclear_alert, _send
-from observability.metrics import record_score, record_trade
+from observability.metrics import record_score
 from observability.drift_detector import check_drift
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -359,10 +359,10 @@ async def daily_reset_task() -> None:
 
 async def drift_check_task() -> None:
     """Check win rate drift vs backtest every hour."""
-    BACKTEST_WIN_RATE = 0.55  # Set from your backtest results before going live
     while True:
         await asyncio.sleep(3600)
-        if check_drift(BACKTEST_WIN_RATE):
+        alert = check_drift()
+        if alert.drifted:
             try:
                 await _send(
                     "⚠️ <b>DRIFT ALERT</b>\n"

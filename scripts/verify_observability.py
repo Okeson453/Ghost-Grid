@@ -30,7 +30,7 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    from observability.daily_report import DailyReport
+    from observability.daily_report import DailyReport, DailyReporter
     print("✓ observability.daily_report imported successfully")
 except ImportError as e:
     print(f"✗ Import failed: {e}")
@@ -67,15 +67,23 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-# Test DailyReport
-print("\nTesting DailyReport...")
+# Test DailyReporter
+print("\nTesting DailyReporter...")
 try:
     with tempfile.TemporaryDirectory() as tmpdir:
-        report = DailyReport(output_dir=tmpdir)
+        metrics_csv = Path(tmpdir) / "metrics.csv"
+        trades_csv = Path(tmpdir) / "trades.csv"
+        reports_csv = Path(tmpdir) / "daily_reports.csv"
         
-        # Verify report object is callable
-        assert hasattr(report, 'generate')
-        print("✓ DailyReport initialized")
+        reporter = DailyReporter(
+            metrics_csv=str(metrics_csv),
+            trades_csv=str(trades_csv),
+            reports_csv=str(reports_csv)
+        )
+        
+        # Verify reporter object is callable
+        assert hasattr(reporter, 'generate_report')
+        print("✓ DailyReporter initialized")
 
 except Exception as e:
     print(f"✗ DailyReport test failed: {e}")
@@ -90,7 +98,8 @@ try:
         journal = TradeJournal(output_dir=tmpdir)
         
         # Verify journal object is callable
-        assert hasattr(journal, 'record_trade')
+        assert hasattr(journal, 'record_opened')
+        assert hasattr(journal, 'record_closed')
         print("✓ TradeJournal initialized")
 
 except Exception as e:
@@ -104,13 +113,15 @@ print("\nTesting drift detection...")
 try:
     # compute_win_rate and check_drift should handle missing/empty files gracefully
     win_rate = compute_win_rate()
-    assert isinstance(win_rate, float)
-    assert 0.0 <= win_rate <= 1.0
-    print(f"✓ compute_win_rate works (neutral default: {win_rate:.2%})")
+    assert win_rate is None or isinstance(win_rate, float)
+    if win_rate is not None:
+        assert 0.0 <= win_rate <= 100.0
+    print(f"✓ compute_win_rate works (value: {win_rate})")
 
-    drift_triggered = check_drift(0.50)
-    assert isinstance(drift_triggered, bool)
-    print(f"✓ check_drift works (baseline 50%: drift={drift_triggered})")
+    drift_alert = check_drift()
+    assert hasattr(drift_alert, 'drifted')
+    assert isinstance(drift_alert.drifted, bool)
+    print(f"✓ check_drift works (drifted={drift_alert.drifted})")
 
 except Exception as e:
     print(f"✗ Drift detection test failed: {e}")
