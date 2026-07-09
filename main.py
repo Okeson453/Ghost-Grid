@@ -110,7 +110,18 @@ async def on_snapshot(snap: MarketSnapshot) -> None:
 
     # ── Update existing positions on tick ─────────────────────────────────
     if position_registry and portfolio_state and commander and ledger:
-        await position_registry.on_tick(snap, commander, portfolio_state, ledger)
+        exits = await position_registry.process_tick(snap, portfolio_state)
+        # Handle any exits triggered by state machine updates
+        for position_id, exit_reason in exits:
+            await commander.close_position(snap.symbol, position_id, exit_reason)
+            realized_pnl = (
+                position_registry.get_position(position_id)._calc_pnl(snap.tick.mid)
+                if position_registry.get_position(position_id)
+                else 0.0
+            )
+            position_registry.remove_position(
+                position_id, realized_pnl, portfolio_state
+            )
 
     # ── Score new signal ─────────────────────────────────────────────────
     try:
@@ -210,9 +221,13 @@ async def on_snapshot(snap: MarketSnapshot) -> None:
     # Reset hysteresis gate after entry
     gate.reset(snap.symbol)
 
-    fill = await commander.open_position(order)
-    if not fill.success:
-        log.error("fill_failed", symbol=snap.symbol, error=fill.error)
+    fill = await commander.open_position(order, snap.atr_5m, snap.tick.mid)
+    if not fill or not fill.success:
+        log.error(
+            "fill_failed",
+            symbol=snap.symbol,
+            error=fill.error if fill else "Unknown error",
+        )
         return
 
     # ── Create position state machine ─────────────────────────────────────
@@ -228,7 +243,7 @@ async def on_snapshot(snap: MarketSnapshot) -> None:
         pip_size=instr.pip_size,
     )
     portfolio_state.add_position(sm)
-    position_registry.register(sm)
+    position_registry.add_position(sm, portfolio_state)
 
     # ── Persist to database ───────────────────────────────────────────────
     try:

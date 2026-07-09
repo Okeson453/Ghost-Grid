@@ -41,7 +41,9 @@ RECONNECT_PAUSE_THRESHOLD: int = 5  # Consecutive failures before pause
 # Layer 1: Profit trigger → arms trailing stop
 PROFIT_TRIGGER_USD: float = 1.50  # Layer 1: $1.50 unrealised profit → trail armed
 # Layer 2: Trailing stop execution
-TRAIL_FLOOR_USD: float = 0.75  # Min trail distance floor: $0.75 (ATR-adaptive usually larger)
+TRAIL_FLOOR_USD: float = (
+    0.75  # Min trail distance floor: $0.75 (ATR-adaptive usually larger)
+)
 # Layer 3: Weakness detection (RSI + engulfing + volume cliff all three)
 # Layer 4: CVD divergence override (fastest exit)
 CVD_EXIT_ZSCORE: float = 2.0  # Close if CVD divergence exceeds 2.0 sigma (Z-score)
@@ -52,3 +54,11 @@ NUCLEAR_COMBINED_PROFIT_USD: float = 10.00  # Trigger 1: profit ceiling
 NUCLEAR_LOSS_PROTECTION_USD: float = -6.00  # Trigger 3: floating loss floor
 NUCLEAR_LATENCY_THRESHOLD_MS: float = 500.0  # Trigger 6: execution latency anomaly
 NUCLEAR_CORRELATION_SPIKE: float = 0.80  # Trigger 7: avg pair correlation ceiling
+
+# ── Drift detection / backtest baseline (observability) ────────────────
+# Expected backtest win rate (percent) used by DriftDetector. This value
+# may be updated between deployments but is the single source of truth
+# for drift detection thresholds.
+BACKTEST_WIN_RATE_PERCENT: float = 58.0
+DRIFT_THRESHOLD_PERCENT: float = 8.0
+DRIFT_LOOKBACK_TRADES: int = 20

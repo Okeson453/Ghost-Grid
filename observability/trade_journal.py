@@ -16,6 +16,7 @@ import csv
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+import logging
 
 
 class TradeJournal:
@@ -139,6 +140,10 @@ class TradeJournal:
             max_loss_usd: Peak loss during position
             layers_closed: Number of layers closed (1–4)
         """
+        """
+        Update the existing open row for `position_id` with closing fields.
+        If an open row is not found, append a new closed row and log a warning.
+        """
         exit_time_utc = (
             datetime.utcfromtimestamp(exit_time_utc_ms / 1000.0).isoformat() + "Z"
         )
@@ -148,31 +153,100 @@ class TradeJournal:
 
         duration_min = (exit_time_utc_ms - entry_time_utc_ms) / (1000 * 60)
 
-        row = {
-            "position_id": position_id,
-            "symbol": "",  # Will be matched from open record
-            "direction": "",
-            "entry_price": "",
-            "stop_loss": "",
-            "lot_size": "",
-            "entry_time_utc": entry_time_utc,
-            "entry_h_c": "",
-            "entry_regime": "",
-            "entry_session": "",
-            "exit_time_utc": exit_time_utc,
-            "exit_price": exit_price,
-            "exit_reason": exit_reason,
-            "pnl_usd": pnl_usd,
-            "pnl_pct": pnl_pct,
-            "duration_min": duration_min,
-            "max_profit_usd": max_profit_usd,
-            "max_loss_usd": max_loss_usd,
-            "layers_closed": layers_closed,
-        }
+        # Read all rows, find matching open row (exit_time_utc empty)
+        rows = []
+        headers = None
+        try:
+            with open(self.csv_path, "r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                for r in reader:
+                    rows.append(r)
+        except FileNotFoundError:
+            rows = []
 
-        with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=row.keys())
-            writer.writerow(row)
+        updated = False
+        if headers is None:
+            # If file missing or unreadable, create headers from default set
+            headers = [
+                "position_id",
+                "symbol",
+                "direction",
+                "entry_price",
+                "stop_loss",
+                "lot_size",
+                "entry_time_utc",
+                "entry_h_c",
+                "entry_regime",
+                "entry_session",
+                "exit_time_utc",
+                "exit_price",
+                "exit_reason",
+                "pnl_usd",
+                "pnl_pct",
+                "duration_min",
+                "max_profit_usd",
+                "max_loss_usd",
+                "layers_closed",
+            ]
+
+        for r in rows:
+            try:
+                if str(r.get("position_id", "")).strip() == str(
+                    position_id
+                ) and not r.get("exit_time_utc"):
+                    # Update this row in-place
+                    r["exit_time_utc"] = exit_time_utc
+                    r["exit_price"] = f"{exit_price}"
+                    r["exit_reason"] = exit_reason
+                    r["pnl_usd"] = f"{pnl_usd}"
+                    r["pnl_pct"] = f"{pnl_pct}"
+                    r["duration_min"] = f"{duration_min}"
+                    r["max_profit_usd"] = f"{max_profit_usd}"
+                    r["max_loss_usd"] = f"{max_loss_usd}"
+                    r["layers_closed"] = f"{layers_closed}"
+                    updated = True
+                    break
+            except Exception:
+                continue
+
+        if not updated:
+            logging.getLogger(__name__).warning(
+                "TradeJournal: no open row found for position_id=%s — appending closed row",
+                position_id,
+            )
+            new_row = {
+                "position_id": position_id,
+                "symbol": "",
+                "direction": "",
+                "entry_price": "",
+                "stop_loss": "",
+                "lot_size": "",
+                "entry_time_utc": entry_time_utc,
+                "entry_h_c": "",
+                "entry_regime": "",
+                "entry_session": "",
+                "exit_time_utc": exit_time_utc,
+                "exit_price": f"{exit_price}",
+                "exit_reason": exit_reason,
+                "pnl_usd": f"{pnl_usd}",
+                "pnl_pct": f"{pnl_pct}",
+                "duration_min": f"{duration_min}",
+                "max_profit_usd": f"{max_profit_usd}",
+                "max_loss_usd": f"{max_loss_usd}",
+                "layers_closed": f"{layers_closed}",
+            }
+            rows.append(new_row)
+
+        # Write back atomically
+        tmp_path = self.csv_path.with_suffix(".tmp")
+        with open(tmp_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader()
+            for r in rows:
+                writer.writerow(r)
+
+        tmp_path.replace(self.csv_path)
 
 
 # ── Global singleton instance ──────────────────────────────────────────

@@ -23,9 +23,11 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 # ── Configurable backtest baseline ─────────────────────────────────────
-BACKTEST_WIN_RATE_PERCENT = 58.0  # Expected win rate from validated backtest
-DRIFT_THRESHOLD_PERCENT = 8.0  # Alert if live < (backtest - 8%)
-LOOKBACK_TRADES = 20  # Evaluate rolling window of N recent trades
+from config.constants import (
+    BACKTEST_WIN_RATE_PERCENT,
+    DRIFT_THRESHOLD_PERCENT,
+    DRIFT_LOOKBACK_TRADES,
+)
 
 
 @dataclass(frozen=True)
@@ -51,14 +53,16 @@ class DriftDetector:
         trades_csv: Optional[str] = None,
         backtest_wr: float = BACKTEST_WIN_RATE_PERCENT,
         drift_threshold: float = DRIFT_THRESHOLD_PERCENT,
+        lookback_trades: int = DRIFT_LOOKBACK_TRADES,
     ) -> None:
         if trades_csv is None:
             trades_csv = "./data_store/trades.csv"
         self.trades_csv = Path(trades_csv)
         self.backtest_wr = backtest_wr
         self.drift_threshold = drift_threshold
+        self.lookback_trades = lookback_trades
 
-    def compute_win_rate(self, lookback: int = LOOKBACK_TRADES) -> Optional[float]:
+    def compute_win_rate(self, lookback: int | None = None) -> Optional[float]:
         """
         Compute win rate from last N closed trades in trade journal.
         Returns None if insufficient trades exist.
@@ -87,6 +91,10 @@ class DriftDetector:
         if not closed_trades:
             return None
 
+        # Determine lookback to use
+        if lookback is None:
+            lookback = self.lookback_trades
+
         # Use last N trades
         recent_trades = (
             closed_trades[-lookback:]
@@ -99,7 +107,7 @@ class DriftDetector:
 
         return (wins / total * 100.0) if total > 0 else None
 
-    def check_drift(self, lookback: int = LOOKBACK_TRADES) -> DriftAlert:
+    def check_drift(self, lookback: int | None = None) -> DriftAlert:
         """
         Evaluate live win rate vs. backtest baseline.
 
@@ -123,11 +131,13 @@ class DriftDetector:
         # Count total trades evaluated
         total_trades = self._count_closed_trades()
 
+        actual_lookback = lookback if lookback is not None else self.lookback_trades
+
         if live_wr < threshold:
             message = (
                 f"DRIFT DETECTED: Live win rate {live_wr:.1f}% < "
                 f"threshold {threshold:.1f}% (backtest {self.backtest_wr:.1f}% - "
-                f"{self.drift_threshold:.1f}% buffer). Last {lookback} trades."
+                f"{self.drift_threshold:.1f}% buffer). Last {actual_lookback} trades."
             )
             return DriftAlert(
                 drifted=True,
@@ -185,7 +195,7 @@ def get_detector() -> DriftDetector:
     return _detector
 
 
-def check_drift(lookback: int = LOOKBACK_TRADES) -> DriftAlert:
+def check_drift(lookback: int | None = None) -> DriftAlert:
     """
     Check for statistical drift between live and backtest performance.
     Convenience wrapper.

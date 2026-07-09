@@ -88,11 +88,28 @@ bool SendToPipe(string message) {
 //| Returns: message string or empty if no data available
 //+------------------------------------------------------------------+
 string ReadFromPipe() {
-    // In MQL5, named pipes are write-only in typical EA usage
-    // Reading would require a separate file handle in read mode
-    // For Phase 1, commands are sent via a separate mechanism (e.g., file polling)
-    // This function is a placeholder for Phase 2 bidirectional communication
-    return "";
+    // Try to open the same named pipe for reading in non-blocking fashion
+    int fh = FileOpen(g_pipe_path, FILE_READ | FILE_BIN);
+    if (fh == INVALID_HANDLE) {
+        return "";
+    }
+
+    string buffer = "";
+
+    while (!FileIsEnding(fh)) {
+        string chunk = FileReadString(fh);
+        if (StringLen(chunk) == 0) break;
+        buffer += chunk;
+    }
+
+    FileClose(fh);
+
+    // Trim any trailing newlines
+    while (StringLen(buffer) > 0 && (StringGetCharacter(buffer, StringLen(buffer)-1) == 10 || StringGetCharacter(buffer, StringLen(buffer)-1) == 13)) {
+        buffer = StringSubstr(buffer, 0, StringLen(buffer)-1);
+    }
+
+    return buffer;
 }
 
 

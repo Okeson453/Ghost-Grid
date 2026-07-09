@@ -41,7 +41,7 @@ class PositionRegistry:
         """
         position_id = state_machine.position_id
         self._positions[position_id] = state_machine
-        portfolio_state.add_position(position_id, state_machine)
+        portfolio_state.add_position(state_machine)  # Pass only state_machine; ID is extracted from it
         logger.info(
             f"Position registered: {state_machine.symbol} {state_machine.direction} "
             f"id={position_id} entry={state_machine.entry:.5f} "

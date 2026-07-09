@@ -342,3 +342,107 @@ class DatabaseWriter:
     def metrics(self) -> WriterMetrics:
         """Expose metrics."""
         return self._metrics
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Module-level convenience functions for common write operations
+# ──────────────────────────────────────────────────────────────────────────────
+
+_writer_instance: Optional[DatabaseWriter] = None
+
+
+def get_writer() -> DatabaseWriter:
+    """Get or create the global DatabaseWriter instance."""
+    global _writer_instance
+    if _writer_instance is None:
+        _writer_instance = DatabaseWriter()
+    return _writer_instance
+
+
+async def write_position_opened(
+    position_id: int,
+    symbol: str,
+    direction: str,
+    entry_price: float,
+    stop_loss: float,
+    lot_size: float,
+    leverage: float,
+    hc_score: int,
+    regime: str,
+    session: str,
+    mt5_ticket: Optional[int] = None,
+    open_ts: Optional[int] = None,
+) -> int:
+    """
+    Convenience function to record a position opening.
+    This captures the entry point and confluence data.
+    """
+    writer = get_writer()
+
+    # Convert timestamp to ISO format if provided
+    entry_time_utc = (
+        datetime.fromtimestamp(open_ts / 1000.0, tz=timezone.utc).isoformat()
+        if open_ts
+        else datetime.now(timezone.utc).isoformat()
+    )
+
+    # Calculate pip size from common forex patterns
+    # This is simplified; real implementation should look up from config/instruments.py
+    pip_size = 0.0001 if "JPY" not in symbol else 0.01
+    pip_value = 10.0 if "JPY" not in symbol else 9.09
+
+    # Calculate risk in USD
+    risk_usd = abs(entry_price - stop_loss) * (lot_size * 100000) * pip_value
+
+    # For opening, we don't have exit data yet; bar_id is set to 0
+    return await writer.write_position(
+        symbol=symbol,
+        direction=direction,
+        entry_price=entry_price,
+        entry_time_utc=entry_time_utc,
+        entry_bar_id=0,  # Will be updated from MT5
+        entry_session=session,
+        lot_size=lot_size,
+        pip_size=pip_size,
+        pip_value=pip_value,
+        h_c_entry=hc_score,
+        regime_entry=regime,
+        confluence_score=hc_score,
+        risk_usd=risk_usd,
+        exit_price=None,
+        exit_time_utc=None,
+        exit_bar_id=None,
+        exit_session=None,
+        exit_reason=None,
+        pnl_usd=None,
+        pnl_pips=None,
+    )
+
+
+async def write_h_score(
+    symbol: str,
+    bar_id: int,
+    signal_time_utc: str,
+    session: str,
+    h_c_value: int,
+    regime: str,
+    confluence_count: int,
+    direction: str,
+) -> int:
+    """
+    Convenience function to record H_c confluence scoring signal.
+    """
+    writer = get_writer()
+    return await writer.write_signal(
+        symbol=symbol,
+        signal_type="CONFLUENCE",
+        bar_id=bar_id,
+        signal_time_utc=signal_time_utc,
+        session=session,
+        h_c_value=h_c_value,
+        regime_from=regime,
+        regime_to=regime,
+        cvd_zscore=None,
+        confluence_count=confluence_count,
+        severity=direction.upper(),
+    )
