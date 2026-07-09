@@ -21,6 +21,7 @@ from .fill_handler import FillHandler
 from .retry import RetryOrchestrator
 from .leverage import LeverageCalculator
 from config import get_settings
+from config.settings import Settings
 
 
 class ExecutionCommander:
@@ -30,10 +31,31 @@ class ExecutionCommander:
     """
 
     def __init__(self, pipe_path: Optional[str] = None):
-        settings = get_settings()
+        try:
+            settings = get_settings()
+        except Exception:
+            settings = Settings(
+                telegram_token="",
+                telegram_chat_id="",
+                mt5_login=0,
+                mt5_password="",
+                mt5_server="",
+                pipe_path=pipe_path or r"\\.\pipe\ghostgrid",
+                paper_trading=True,
+                log_level="INFO",
+                vps_timezone="UTC",
+                historical_data_dir="./data_store/historical",
+            )
+
         self.pipe_path = pipe_path or settings.pipe_path
 
-        self.dispatcher = PipeDispatcher(self.pipe_path)
+        try:
+            from bridge.pipe_client import PipeClient
+
+            self.dispatcher = PipeDispatcher(self.pipe_path, pipe_client=PipeClient())
+        except Exception:
+            self.dispatcher = PipeDispatcher(self.pipe_path)
+
         self.fill_handler = FillHandler()
         self.retry_orchestrator = RetryOrchestrator()
         self.leverage_calculator = LeverageCalculator()
@@ -56,9 +78,13 @@ class ExecutionCommander:
         Returns: FillResult if successful, None if failed after retries
         """
         try:
-            # Calculate dynamic leverage
+            # Calculate dynamic leverage and apply it to the validated lot size.
             leverage_mult = self.leverage_calculator.calculate_leverage(
                 current_atr, current_price
+            )
+            effective_lot_size = self.leverage_calculator.apply_leverage(
+                order.lot_size,
+                leverage_mult,
             )
 
             # Create ORDER command
@@ -66,7 +92,7 @@ class ExecutionCommander:
                 command_type="ORDER",
                 symbol=order.symbol,
                 direction=order.direction,
-                lot_size=leverage_mult,  # Base lot × leverage
+                lot_size=effective_lot_size,
                 entry_price=current_price,
                 metadata=f"H_c={order.h_c_score};regime={order.regime};confluence={order.confluence_count}",
             )
@@ -159,18 +185,14 @@ class ExecutionCommander:
                 else:
                     return None
 
-            # Dispatch succeeded, but we don't have fill confirmation yet
-            # In production, this would read from pipe reader in main.py
-            # For now, assume dispatch success = order accepted
-            return FillResult(
-                status=OrderStatus.FILL,
-                symbol=command.symbol,
-                position_id=0,  # Will be populated by MT5 response
-                fill_price=command.entry_price or 0.0,
-                fill_time_ms=0,
-                request_id=request_id,
-                reason=None,
-            )
+            response_text = getattr(self.dispatcher, "last_response", None)
+            if response_text:
+                parsed = self.fill_handler.parse_response(response_text)
+                if parsed is not None:
+                    return parsed
+
+            # If there was no parseable response, treat dispatch as unsuccessful.
+            return None
 
         return None
 

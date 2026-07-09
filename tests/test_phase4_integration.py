@@ -190,6 +190,95 @@ class TestExecutionCommanderIntegration:
         assert result.status == OrderStatus.REJECT
         assert "Insufficient" in result.reason
 
+    def test_dispatcher_uses_pipe_client_for_writes_and_reads(self):
+        """Dispatcher should write through the pipe client and preserve the response."""
+        import asyncio
+        from execution.dispatcher import PipeDispatcher
+        from execution.models import ExecutionCommand
+
+        class FakePipeClient:
+            def __init__(self, response: str):
+                self.response = response
+                self.writes: list[str] = []
+                self.reads: list[str] = []
+                self.connected = False
+
+            async def connect(self):
+                self.connected = True
+
+            async def writeline(self, message: str) -> bool:
+                self.writes.append(message)
+                return True
+
+            async def readline(self) -> str | None:
+                if self.reads:
+                    return self.reads.pop(0)
+                return self.response
+
+        async def run_test() -> None:
+            pipe_client = FakePipeClient("FILL|EURUSD|1001|1.0855|1700000000000|req_001")
+            dispatcher = PipeDispatcher("\\\\.\\pipe\\ghostgrid", pipe_client=pipe_client)
+            command = ExecutionCommand(
+                command_type="ORDER",
+                symbol="EURUSD",
+                direction="LONG",
+                lot_size=0.5,
+                entry_price=1.0850,
+                metadata="",
+            )
+
+            success = await dispatcher.dispatch(command, timeout_s=1.0)
+
+            assert success is True
+            assert pipe_client.connected is True
+            assert pipe_client.writes[0].startswith("ORDER|")
+            assert dispatcher.last_response == "FILL|EURUSD|1001|1.0855|1700000000000|req_001"
+
+        asyncio.run(run_test())
+
+    def test_commander_uses_dispatcher_response_for_fill_verification(self):
+        """ExecutionCommander should parse the dispatched response rather than assume success."""
+        import asyncio
+        from execution.commander import ExecutionCommander
+        from execution.models import ValidatedOrder
+
+        class FakeDispatcher:
+            def __init__(self, response: str):
+                self.last_response = response
+                self.calls = []
+
+            async def dispatch(self, command, timeout_s: float = 5.0) -> bool:
+                self.calls.append((command, timeout_s))
+                return True
+
+        async def run_test() -> None:
+            commander = ExecutionCommander(pipe_path="\\\\.\\pipe\\ghostgrid")
+            commander.dispatcher = FakeDispatcher(
+                "FILL|EURUSD|1001|1.0855|1700000000000|req_001"
+            )
+
+            order = ValidatedOrder(
+                symbol="EURUSD",
+                direction="LONG",
+                lot_size=0.50,
+                entry_price=1.0850,
+                h_c_score=140,
+                regime="TREND",
+                session="LONDON",
+                confluence_count=3,
+                timestamp_ms=1_700_000_000_000,
+                request_id="req_001",
+            )
+
+            result = await commander.open_position(order, 0.0050, 1.0850)
+
+            assert result is not None
+            assert result.position_id == 1001
+            assert result.fill_price == 1.0855
+            assert result.symbol == "EURUSD"
+
+        asyncio.run(run_test())
+
 
 # ────── POSITION STATE MACHINE TESTS ─────────────────────────────────────────
 

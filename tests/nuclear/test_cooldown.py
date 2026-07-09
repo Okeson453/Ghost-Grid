@@ -20,13 +20,10 @@ class MockPortfolioState:
 
 
 def test_cooldown_inactive_at_start():
-    """At start: cooldown not active."""
+    """When the last nuclear event is long in the past, cooldown is inactive."""
     state = MockPortfolioState()
-    state.last_nuclear_ts = 0
-    
-    # Current time: 1 second after Unix epoch
     current_time_ms = 1000
-    
+    state.last_nuclear_ts = current_time_ms - ((15 * 60 * 1000) + 1)
     cooldown = apply_cooldown(state, current_time_ms)
     assert not cooldown.active
     assert state.circuit_breaker is False

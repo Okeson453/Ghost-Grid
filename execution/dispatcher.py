@@ -7,7 +7,7 @@ WHY: Isolates pipe I/O, enables metrics tracking, provides retry interface.
 from __future__ import annotations
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from .models import ExecutionCommand, DispatchMetrics
 
@@ -18,9 +18,11 @@ class PipeDispatcher:
     WHY: Atomicity and metrics enable failure recovery.
     """
 
-    def __init__(self, pipe_path: str):
+    def __init__(self, pipe_path: str, pipe_client: Optional[Any] = None):
         self.pipe_path = Path(pipe_path)
         self._metrics = DispatchMetrics()
+        self._pipe_client = pipe_client
+        self.last_response: Optional[str] = None
 
     async def dispatch(self, command: ExecutionCommand, timeout_s: float = 5.0) -> bool:
         """
@@ -50,6 +52,7 @@ class PipeDispatcher:
                 timeout=timeout_s,
             )
             self._metrics.bytes_written += len(command_str.encode())
+            self.last_response = await self._read_response(timeout_s)
             return True
 
         except asyncio.TimeoutError:
@@ -66,8 +69,13 @@ class PipeDispatcher:
         WHY: Async I/O prevents blocking main event loop.
         """
         try:
-            # In production, this would use async pipe I/O (e.g., aiofiles + async pipe)
-            # For now, use sync write wrapped in executor
+            if self._pipe_client is not None:
+                await self._pipe_client.connect()
+                success = await self._pipe_client.writeline(data)
+                if not success:
+                    raise RuntimeError("Pipe client write failed")
+                return
+
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
@@ -76,6 +84,16 @@ class PipeDispatcher:
             )
         except Exception as e:
             raise RuntimeError(f"Pipe write failed: {e}")
+
+    async def _read_response(self, timeout_s: float) -> Optional[str]:
+        """Read a single response line from the pipe client if available."""
+        if self._pipe_client is None:
+            return None
+
+        try:
+            return await asyncio.wait_for(self._pipe_client.readline(), timeout=timeout_s)
+        except (asyncio.TimeoutError, Exception):
+            return None
 
     def _sync_write_to_pipe(self, data: str) -> None:
         """Synchronous pipe write (called in executor)."""

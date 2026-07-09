@@ -32,17 +32,40 @@ class TestNuclearTriggers:
     def test_trigger_combined_profit(self):
         """Trigger: combined unrealised profit >= threshold."""
         state = MockPortfolioState()
-        state.unrealized_pnl = 500.0  # Assuming threshold is set in config
-        # Note: actual test depends on config constants
-        # This is a placeholder showing the test structure
+        state.unrealized_pnl = 10.0
+
+        result = evaluate_triggers(state)
+
+        assert result == "COMBINED_PROFIT"
+
+    def test_trigger_daily_gain_target(self):
+        """Trigger: daily gain target >= 15% of starting equity."""
+        state = MockPortfolioState()
+        state.realized_pnl = 1500.0
+        state.unrealized_pnl = 0.0
+
+        result = evaluate_triggers(state)
+
+        assert result == "DAILY_GAIN_TARGET"
+
+    def test_trigger_loss_protection(self):
+        """Trigger: floating loss <= -$6.00."""
+        state = MockPortfolioState()
+        state.unrealized_pnl = -6.0
+
+        result = evaluate_triggers(state)
+
+        assert result == "LOSS_PROTECTION"
 
     def test_trigger_daily_loss_limit(self):
         """Trigger: daily loss <= -4% of starting equity."""
         state = MockPortfolioState()
-        state.realized_pnl = -200.0
-        state.unrealized_pnl = -200.0
-        # Daily PnL = -400, which is -4% of 10000
-        # Should trigger DAILY_LOSS_LIMIT
+        state.realized_pnl = -400.0
+        state.unrealized_pnl = 0.0
+
+        result = evaluate_triggers(state)
+
+        assert result == "DAILY_LOSS_LIMIT"
 
     def test_trigger_market_exhaustion_rsi_oversold(self):
         """Trigger: RSI < 25 (oversold) indicates exhaustion."""
@@ -61,10 +84,12 @@ class TestNuclearTriggers:
     def test_no_trigger_normal_conditions(self):
         """No trigger: normal trading conditions."""
         state = MockPortfolioState()
-        state.unrealized_pnl = 100.0  # Profit but not extreme
+        state.unrealized_pnl = 5.0  # Profit but below combined profit threshold
         state.realized_pnl = 50.0
         state.avg_basket_rsi = 50.0  # Normal
         state.last_fill_latency_ms = 10.0  # Normal
         state.avg_pair_correlation = 0.3  # Normal
+
         result = evaluate_triggers(state)
+
         assert result is None
