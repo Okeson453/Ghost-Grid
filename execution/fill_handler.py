@@ -16,8 +16,17 @@ class FillHandler:
     WHY: Decouples parsing logic from I/O, enables metrics.
     """
 
-    def __init__(self):
+    def __init__(self, reader_or_queue: Optional[object] = None):
         self._metrics = FillHandlerMetrics()
+        # Accept either a PipeReader instance or an asyncio.Queue for fills
+        self._fill_queue: Optional[asyncio.Queue] = None
+        if reader_or_queue is not None:
+            # If a PipeReader was provided, extract its internal fill queue
+            if hasattr(reader_or_queue, "_fill_queue"):
+                self._fill_queue = getattr(reader_or_queue, "_fill_queue")
+            # If a raw queue was provided, use it directly
+            elif isinstance(reader_or_queue, asyncio.Queue):
+                self._fill_queue = reader_or_queue
 
     def parse_response(self, response: str) -> Optional[FillResult]:
         """
@@ -118,6 +127,54 @@ class FillHandler:
             return None
         finally:
             self._metrics.failed_received += 1
+
+    async def wait_for_fill(self, request_id: str, timeout_s: float = 3.0) -> Optional[FillResult]:
+        """
+        Wait for a Fill/Reject/Failed message matching `request_id` on the
+        configured fill queue. Returns FillResult or None on timeout.
+        """
+        if self._fill_queue is None:
+            return None
+
+        try:
+            end_ts = asyncio.get_event_loop().time() + timeout_s
+            while True:
+                remaining = end_ts - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    return None
+                msg = await asyncio.wait_for(self._fill_queue.get(), timeout=remaining)
+
+                # msg is a protocol dataclass (FillMessage/RejectMessage/ClosedMessage)
+                # Match by position_id if available, or mt5_ticket when provided.
+                try:
+                    if hasattr(msg, "position_id") and str(msg.position_id) == str(request_id):
+                        # Convert protocol FillMessage -> FillResult-like object
+                        if hasattr(msg, "fill_price"):
+                            return FillResult(
+                                status=OrderStatus.FILL,
+                                symbol=getattr(msg, "symbol", ""),
+                                position_id=int(msg.position_id),
+                                fill_price=float(getattr(msg, "fill_price", 0.0)),
+                                fill_time_ms=int(asyncio.get_event_loop().time() * 1000),
+                                request_id=str(request_id),
+                            )
+                        else:
+                            # REJECT/FALSE messages
+                            return FillResult(
+                                status=OrderStatus.REJECT,
+                                symbol="",
+                                position_id=int(getattr(msg, "position_id", 0)),
+                                fill_price=0.0,
+                                fill_time_ms=int(asyncio.get_event_loop().time() * 1000),
+                                request_id=str(request_id),
+                                reason=getattr(msg, "description", None),
+                            )
+                except Exception:
+                    # Ignore malformed messages and continue waiting until timeout
+                    continue
+
+        except asyncio.TimeoutError:
+            return None
 
     @property
     def metrics(self) -> FillHandlerMetrics:

@@ -69,19 +69,21 @@ class PipeDispatcher:
         WHY: Async I/O prevents blocking main event loop.
         """
         try:
-            if self._pipe_client is not None:
-                await self._pipe_client.connect()
-                success = await self._pipe_client.writeline(data)
-                if not success:
-                    raise RuntimeError("Pipe client write failed")
-                return
+            # Prefer injected async PipeClient (uses win32). If not provided,
+            # lazily create one so we never fall back to opening a regular file.
+            if self._pipe_client is None:
+                try:
+                    from bridge.pipe_client import PipeClient
 
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                self._sync_write_to_pipe,
-                data,
-            )
+                    self._pipe_client = PipeClient()
+                except Exception as ex:
+                    raise RuntimeError(f"Failed to construct PipeClient: {ex}")
+
+            await self._pipe_client.connect()
+            success = await self._pipe_client.writeline(data)
+            if not success:
+                raise RuntimeError("Pipe client write failed")
+            return
         except Exception as e:
             raise RuntimeError(f"Pipe write failed: {e}")
 
@@ -97,15 +99,11 @@ class PipeDispatcher:
 
     def _sync_write_to_pipe(self, data: str) -> None:
         """Synchronous pipe write (called in executor)."""
-        try:
-            # Open pipe for writing (named pipe must exist)
-            with open(str(self.pipe_path), "w") as pipe:
-                pipe.write(data)
-                pipe.flush()
-        except FileNotFoundError:
-            raise RuntimeError(f"Pipe not found: {self.pipe_path}")
-        except Exception as e:
-            raise RuntimeError(f"Pipe write failed: {e}")
+        # Legacy fallback removed: synchronous file-based pipe writes are
+        # unsafe on Windows named pipes. Use PipeClient instead.
+        raise RuntimeError(
+            "Synchronous file-based pipe write is unsupported; use PipeClient"
+        )
 
     @property
     def metrics(self) -> DispatchMetrics:

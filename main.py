@@ -1,30 +1,3 @@
-"""
-main.py — GHOST GRID Production Entry Point
-Full system: data pipeline + scoring + risk + execution + positions + nuclear + telegram.
-
-SOURCE: GHOST-GRID-MT5-Design.md (All components align with design spec)
-
-Startup sequence (10 steps):
-  1.  Load config + validate .env
-  2.  Init SQLite + run migrations
-  3.  Crash recovery (reconcile MT5 vs DB) — Part VIII: Crash Recovery
-  4.  Start Named Pipe bridge (reader + writer + health) — Part I: IPC Bridge
-  5.  Start feed router (per-symbol data pipelines) — Part I: Data Architecture
-  6.  Start scoring pipeline (per-symbol scoring coroutines) — Part III: Confluence Engine
-  7.  Start nuclear controller (500ms portfolio guardian) — Part VI: Nuclear Controller
-  8.  Start watchdog OS thread (2s equity monitor) — Part VIII: Watchdog
-  9.  Start Telegram bot — Alerting system
-  10. Await SIGTERM / SIGINT for graceful shutdown
-
-Key design decisions preserved:
-- MT5 Named Pipes for IPC (not ZeroMQ)
-- H_c = HMP + HLCP + MPP (0–180 range, regime-gated)
-- 4-layer exit system: profit trigger → trail → weakness → CVD divergence
-- 7 nuclear triggers (500ms polling)
-- SQLite WAL for crash-safe persistence
-- Independent OS watchdog thread (not asyncio)
-"""
-
 from __future__ import annotations
 import asyncio
 import logging
@@ -343,13 +316,50 @@ async def startup() -> tuple:
     gate = ConfluenceGate()
     risk_governor = RiskGovernor()
 
-    # ── Step 5: Named Pipe bridge ──────────────────────────────────────
-    pipe = PipeClient()
-    reader = PipeReader(pipe)
-    dispatcher = Dispatcher(pipe)
+    # ── Step 5: Named Pipe bridge (dual-pipe: ticks read / commands write)
+    ticks_pipe_path = str(settings.pipe_path) + "_ticks"
+    commands_pipe_path = str(settings.pipe_path) + "_commands"
+
+    ticks_pipe = PipeClient(pipe_path=ticks_pipe_path)
+    commands_pipe = PipeClient(pipe_path=commands_pipe_path)
+
+    reader = PipeReader(ticks_pipe)
+    # Dispatcher/Dispatcher-like constructor may differ across versions; prefer
+    # a PipeDispatcher-compatible object. If a module level `Dispatcher` exists
+    # use it, otherwise try importing PipeDispatcher directly.
+    try:
+        dispatcher = Dispatcher(commands_pipe)
+    except Exception:
+        from execution.dispatcher import PipeDispatcher
+
+        dispatcher = PipeDispatcher(str(settings.pipe_path), pipe_client=commands_pipe)
+
     fill_handler = FillHandler(reader)
-    commander = ExecutionCommander(dispatcher, fill_handler)
-    commander.set_next_id(_pos_id_counter)
+    writer = PipeWriter(commands_pipe)
+    # Attach writer to fill_handler for legacy metrics caller
+    setattr(fill_handler, "writer", writer)
+
+    # Paper trading mode: use a simulated commander to avoid real pipe I/O
+    if settings.paper_trading:
+        from execution.paper import PaperExecutionCommander
+
+        commander = PaperExecutionCommander()
+    else:
+        # Construct ExecutionCommander and inject dispatcher/fill_handler
+        try:
+            commander = ExecutionCommander()
+            # Inject the dispatcher instance we created (commands_pipe-backed)
+            setattr(commander, "dispatcher", dispatcher)
+            setattr(commander, "fill_handler", fill_handler)
+        except Exception:
+            commander = ExecutionCommander()
+
+    # Set the next id where supported
+    if hasattr(commander, "set_next_id"):
+        try:
+            commander.set_next_id(_pos_id_counter)
+        except Exception:
+            pass
 
     # ── Step 6: Position registry ──────────────────────────────────────
     position_registry = PositionRegistry()
@@ -361,6 +371,8 @@ async def startup() -> tuple:
         on_nuclear_alert=send_nuclear_alert,
     )
 
+    # Backwards-compatible single `pipe` return (commands pipe)
+    pipe = commands_pipe
     return pipe, reader, fill_handler, nuclear_controller
 
 
@@ -506,6 +518,7 @@ async def main() -> None:
             # Core pipeline
             reconnect.run(),
             reader.run(),
+            writer.run(),
             fill_handler.run(),
             router.run(),
             # Nuclear guardian

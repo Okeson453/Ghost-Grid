@@ -63,8 +63,9 @@ class PipeClientMetrics:
 class PipeClient:
     """Async Named Pipe client for MT5 communication with enterprise features."""
 
-    def __init__(self) -> None:
-        self._pipe_path = get_settings().pipe_path
+    def __init__(self, pipe_path: Optional[str] = None) -> None:
+        # Allow overriding the pipe path for dual-pipe setups
+        self._pipe_path = pipe_path if pipe_path is not None else get_settings().pipe_path
         self._handle: Optional[pywintypes.HANDLE] = None
         self._connected = asyncio.Event()
         self._read_lock = asyncio.Lock()
@@ -232,3 +233,14 @@ class PipeClient:
             finally:
                 self._handle = None
                 self._connection_start_time = None
+    async def write(self, message: str) -> bool:
+        """
+        Convenience alias that ensures connection then writes a line.
+        Kept for backwards compatibility with callers using `write()`.
+        """
+        if not self.is_connected:
+            try:
+                await self.connect()
+            except Exception:
+                return False
+        return await self.writeline(message)

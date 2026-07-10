@@ -185,13 +185,25 @@ class ExecutionCommander:
                 else:
                     return None
 
+            # First, prefer a direct fill confirmation from the fill handler
+            wait_for = getattr(self.fill_handler, "wait_for_fill", None)
+            if callable(wait_for):
+                fill_result = await wait_for(request_id, timeout_s=3.0)
+                if fill_result and fill_result.status == OrderStatus.FILL:
+                    return fill_result
+
+            # Fallback: parse any immediate response preserved by dispatcher
             response_text = getattr(self.dispatcher, "last_response", None)
             if response_text:
                 parsed = self.fill_handler.parse_response(response_text)
                 if parsed is not None:
                     return parsed
 
-            # If there was no parseable response, treat dispatch as unsuccessful.
+            # If there was no confirmation, allow retry loop to continue.
+            if attempt < max_attempts:
+                await asyncio.sleep(0.5)
+                continue
+
             return None
 
         return None
