@@ -90,3 +90,9 @@ class LeverageCalculator:
     def metrics(self) -> LeverageMetrics:
         """Expose metrics."""
         return self._metrics
+
+
+def compute_leverage(atr: float, current_price: float) -> int:
+    """Helper function for legacy callers: compute leverage multiplier."""
+    calc = LeverageCalculator()
+    return calc.calculate_leverage(atr, current_price)

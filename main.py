@@ -6,7 +6,10 @@ import sys
 import time
 from datetime import datetime, timedelta
 from typing import Optional
-import structlog
+try:
+    import structlog
+except Exception:  # pragma: no cover - fallback when structlog not available
+    structlog = None
 from config import get_settings
 from config.instruments import get_instrument
 from bridge.pipe_client import PipeClient
@@ -368,12 +371,12 @@ async def startup() -> tuple:
     nuclear_controller = NuclearController(
         state=portfolio_state,
         commander=commander,
-        on_nuclear_alert=send_nuclear_alert,
+        telegram_alerts=send_nuclear_alert,
     )
 
     # Backwards-compatible single `pipe` return (commands pipe)
     pipe = commands_pipe
-    return pipe, reader, fill_handler, nuclear_controller
+    return pipe, reader, fill_handler, nuclear_controller, writer
 
 
 # ── Background tasks ───────────────────────────────────────────────────────
@@ -476,7 +479,7 @@ async def main() -> None:
     settings = get_settings()
 
     # Startup sequence (steps 1-7)
-    pipe, reader, fill_handler, nuke_ctrl = await startup()
+    pipe, reader, fill_handler, nuke_ctrl, writer = await startup()
 
     # Step 5: Feed router (data pipeline)
     router = FeedRouter(reader, on_snapshot)
@@ -494,10 +497,15 @@ async def main() -> None:
     # Step 9: Telegram bot
     tg_app = build_application(portfolio_state, nuclear_controller)
 
-    # Setup graceful shutdown
+    # Setup graceful shutdown (add_signal_handler may not be implemented on Windows)
     loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, lambda: _shutdown_event.set())
+    try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: _shutdown_event.set())
+    except NotImplementedError:
+        # Fallback for Windows where add_signal_handler isn't implemented
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, lambda *_args: _shutdown_event.set())
 
     log.info(
         "ghost_grid_live",
@@ -505,12 +513,13 @@ async def main() -> None:
         mode=settings.log_level,
     )
 
-    # Connect to MT5 pipe
-    try:
-        await pipe.connect()
-    except Exception as e:
-        log.error("pipe_connect_failed", error=str(e))
-        return
+    # Connect to MT5 pipe (skip when running in paper trading mode)
+    if not settings.paper_trading:
+        try:
+            await pipe.connect()
+        except Exception as e:
+            log.error("pipe_connect_failed", error=str(e))
+            return
 
     # Step 10: Run all tasks concurrently
     try:

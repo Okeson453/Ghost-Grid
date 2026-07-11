@@ -145,3 +145,91 @@ async def get_pool() -> ConnectionPool:
         _pool = ConnectionPool(db_path=settings.db_path, pool_size=5)
         await _pool.init()
     return _pool
+
+
+async def get_async_connection() -> sqlite3.Connection:
+    """
+    Backwards-compatible helper: acquire a single connection from the global pool.
+    Returns a sqlite3.Connection instance.
+    """
+    pool = await get_pool()
+    conn = await pool.acquire()
+    return conn
+
+
+async def run_migrations(conn: sqlite3.Connection) -> None:
+    """
+    Minimal migration runner to create required tables if they don't exist.
+    This is intentionally simple to allow `main.py` startup during testing.
+    """
+    try:
+        cursor = conn.cursor()
+        # Positions table
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                direction TEXT,
+                state TEXT,
+                entry_price REAL,
+                entry_time_utc TEXT,
+                entry_bar_id INTEGER,
+                entry_session TEXT,
+                lot_size REAL,
+                pip_size REAL,
+                pip_value REAL,
+                h_c_entry INTEGER,
+                regime_entry TEXT,
+                confluence_score INTEGER,
+                risk_usd REAL,
+                exit_price REAL,
+                exit_time_utc TEXT,
+                exit_bar_id INTEGER,
+                exit_session TEXT,
+                exit_reason TEXT,
+                pnl_usd REAL,
+                pnl_pips REAL
+            )
+            """
+        )
+
+        # Signals, regimes, snapshots minimal tables
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                signal_type TEXT,
+                bar_id INTEGER,
+                signal_time_utc TEXT,
+                session TEXT
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS regimes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                regime TEXT,
+                start_time_utc TEXT
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                timestamp_ms INTEGER,
+                data TEXT
+            )
+            """
+        )
+
+        conn.commit()
+    except Exception as e:
+        raise RuntimeError(f"Failed to run migrations: {e}")

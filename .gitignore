@@ -16,6 +16,7 @@ dist/
 build/
 *.egg-info/
 .venv/
+venv/
 
 # MT5 compiled
 mt5_ea/*.ex5

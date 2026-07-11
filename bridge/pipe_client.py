@@ -104,10 +104,8 @@ class PipeClient:
             )
         except Exception as e:
             self._metrics.connection_failures += 1
-            log.error(
-                f"Failed to connect to pipe: {e}",
-                attempt=self._metrics.connection_attempts,
-            )
+            # Avoid passing non-standard kwargs to the stdlib logger
+            log.error(f"Failed to connect to pipe: {e} (attempt={self._metrics.connection_attempts})")
             self._connected.clear()
             raise
 

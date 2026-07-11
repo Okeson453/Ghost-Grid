@@ -297,6 +297,33 @@ def record_trade_opened(
     )
 
 
+def record_opened(
+    position_id: int,
+    symbol: str,
+    direction: str,
+    entry_price: float,
+    stop_loss: float,
+    lot_size: float,
+    entry_h_c: int,
+    entry_regime: str,
+    entry_session: str,
+    entry_time_utc_ms: int,
+) -> None:
+    """Backward-compatible alias used by older callers."""
+    record_trade_opened(
+        position_id,
+        symbol,
+        direction,
+        entry_price,
+        stop_loss,
+        lot_size,
+        entry_h_c,
+        entry_regime,
+        entry_session,
+        entry_time_utc_ms,
+    )
+
+
 def record_trade_closed(
     position_id: int,
     exit_price: float,
@@ -311,6 +338,33 @@ def record_trade_closed(
 ) -> None:
     """Record trade closed. Convenience wrapper."""
     get_journal().record_closed(
+        position_id,
+        exit_price,
+        exit_reason,
+        pnl_usd,
+        pnl_pct,
+        exit_time_utc_ms,
+        entry_time_utc_ms,
+        max_profit_usd,
+        max_loss_usd,
+        layers_closed,
+    )
+
+
+def record_closed(
+    position_id: int,
+    exit_price: float,
+    exit_reason: str,
+    pnl_usd: float,
+    pnl_pct: float,
+    exit_time_utc_ms: int,
+    entry_time_utc_ms: int,
+    max_profit_usd: float = 0.0,
+    max_loss_usd: float = 0.0,
+    layers_closed: int = 1,
+) -> None:
+    """Backward-compatible alias used by older callers."""
+    record_trade_closed(
         position_id,
         exit_price,
         exit_reason,

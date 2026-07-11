@@ -109,3 +109,7 @@ class PipeDispatcher:
     def metrics(self) -> DispatchMetrics:
         """Expose metrics."""
         return self._metrics
+
+
+# Backwards-compatible name expected by older imports
+Dispatcher = PipeDispatcher

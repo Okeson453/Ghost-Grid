@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-from connection import get_pool
+from .connection import get_pool
 
 
 @dataclass

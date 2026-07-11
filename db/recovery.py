@@ -9,8 +9,8 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Optional
 
-from connection import get_pool
-from reader import DatabaseReader
+from .connection import get_pool
+from .reader import DatabaseReader
 
 
 @dataclass
@@ -145,6 +145,41 @@ class DatabaseRecovery:
         except Exception as e:
             self._metrics.recovery_errors += 1
             raise RuntimeError(f"Database integrity verification failed: {e}")
+
+
+async def get_open_positions_from_db() -> list[dict]:
+    """Compatibility helper: return list of open positions from DB."""
+    pool = await get_pool()
+    conn = await pool.acquire()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM positions WHERE state = 'OPEN'")
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await pool.release(conn)
+
+
+async def get_next_position_id() -> int:
+    """Return next available sequential position id (max(id)+1)."""
+    pool = await get_pool()
+    conn = await pool.acquire()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(id) as max_id FROM positions")
+        row = cursor.fetchone()
+        if not row:
+            return 1
+        # row may be a dict (row_factory) or tuple
+        if isinstance(row, dict):
+            max_id = row.get("max_id")
+        else:
+            max_id = row[0]
+        if max_id is None:
+            return 1
+        return int(max_id) + 1
+    finally:
+        await pool.release(conn)
 
     async def compact_database(self) -> bool:
         """

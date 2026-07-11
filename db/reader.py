@@ -7,9 +7,9 @@ WHY: Enables recovery, position validation, and analytics queries.
 from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
-from typing import Optional, list, Any
+from typing import Optional, Any
 
-from connection import get_pool
+from .connection import get_pool
 
 
 @dataclass
