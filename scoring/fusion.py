@@ -22,14 +22,27 @@ Next layer: output passed to scoring/gate.py (Schmitt hysteresis, § III.2)
 
 from __future__ import annotations
 import time
+from typing import Optional
+
 from data.schema import MarketSnapshot
-from scoring.models import ConfluenceScore, HMPResult, HLCPResult, MPPResult
+from scoring.models import ConfluenceScore
 from scoring.hmp.engine import calculate_hmp
 from scoring.hlcp.engine import calculate_hlcp
 from scoring.mpp.engine import calculate_mpp
+from scoring.bayesian_weights import BayesianWeightUpdater
+
+REGIME_MULTIPLIERS = {
+    "TREND": 1.05,
+    "CHOP": 0.85,
+    "BREAKOUT": 1.00,
+    "REVERSAL": 0.90,
+}
 
 
-def score_confluence(snap: MarketSnapshot) -> ConfluenceScore:
+def score_confluence(
+    snap: MarketSnapshot,
+    weight_updater: Optional[BayesianWeightUpdater] = None,
+) -> ConfluenceScore:
     """
     Compute full H_c score for both directions; return the winning score.
 
@@ -39,17 +52,38 @@ def score_confluence(snap: MarketSnapshot) -> ConfluenceScore:
     Returns:
         ConfluenceScore — best direction with 0–180 composite
     """
+    updater = weight_updater or BayesianWeightUpdater()
+
     # Score LONG
     hmp_long = calculate_hmp(snap, "LONG")
     hlcp_long = calculate_hlcp(snap, "LONG")
     mpp_long = calculate_mpp(snap, "LONG")
-    long_composite = min(hmp_long.score + hlcp_long.score + mpp_long.score, 180)
+    weights = updater.get_normalized_weights()
+    long_composite = min(
+        int(
+            round(
+                (weights["HMP"] * hmp_long.score)
+                + (weights["HLCP"] * hlcp_long.score)
+                + (weights["MPP"] * mpp_long.score)
+            )
+        ),
+        180,
+    )
 
     # Score SHORT
     hmp_short = calculate_hmp(snap, "SHORT")
     hlcp_short = calculate_hlcp(snap, "SHORT")
     mpp_short = calculate_mpp(snap, "SHORT")
-    short_composite = min(hmp_short.score + hlcp_short.score + mpp_short.score, 180)
+    short_composite = min(
+        int(
+            round(
+                (weights["HMP"] * hmp_short.score)
+                + (weights["HLCP"] * hlcp_short.score)
+                + (weights["MPP"] * mpp_short.score)
+            )
+        ),
+        180,
+    )
 
     # Pick winner
     if long_composite >= short_composite:
@@ -60,6 +94,9 @@ def score_confluence(snap: MarketSnapshot) -> ConfluenceScore:
         direction = "SHORT"
         composite = short_composite
         hmp, hlcp, mpp = hmp_short, hlcp_short, mpp_short
+
+    regime_multiplier = REGIME_MULTIPLIERS.get(snap.regime, 1.0)
+    composite = int(round(composite * regime_multiplier))
 
     return ConfluenceScore(
         symbol=snap.symbol,

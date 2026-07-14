@@ -48,16 +48,17 @@ class ValidatedOrder:
 @dataclass(frozen=True)
 class ExecutionCommand:
     """
-    Command to be written to named pipe (ORDER or CLOSE).
+    Command to be written to named pipe (ORDER, CLOSE or NUCLEAR_ALL).
     """
-    command_type: Literal["ORDER", "CLOSE"]
+    command_type: Literal["ORDER", "CLOSE", "NUCLEAR_ALL"]
     symbol: str
-    direction: Optional[Literal["LONG", "SHORT"]]  # None for CLOSE
-    lot_size: Optional[float]  # None for CLOSE
-    entry_price: Optional[float]  # None for CLOSE
+    direction: Optional[Literal["LONG", "SHORT"]]  # None for CLOSE/NUCLEAR_ALL
+    lot_size: Optional[float]  # None for CLOSE/NUCLEAR_ALL
+    entry_price: Optional[float]  # None for CLOSE/NUCLEAR_ALL
     position_id: Optional[int] = None  # For CLOSE commands
     exit_reason: Optional[str] = None  # For CLOSE commands
     metadata: str = ""  # Optional metadata string
+    leverage_multiplier: Optional[int] = None
 
 
 @dataclass

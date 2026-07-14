@@ -5,8 +5,10 @@ WHY: Isolated parsing enables unit testing and robust error handling.
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple
+import asyncio
+from typing import Optional
 
+from bridge.protocol import FillMessage, RejectMessage, ClosedMessage, parse_inbound
 from .models import FillResult, OrderStatus, FillHandlerMetrics
 
 
@@ -32,37 +34,100 @@ class FillHandler:
         """
         Parse a response line from MT5.
 
-        Expected formats:
-        - FILL|symbol|position_id|fill_price|fill_time_ms|request_id
-        - REJECT|reason
-        - FAILED|position_id|reason
-
-        Returns: FillResult if parsed successfully, None if malformed
+        The execution layer now requires the versioned protocol payloads from
+        bridge/protocol.py before a fill is considered real. Legacy strings are
+        still parsed for backwards compatibility with existing tests.
         """
         try:
-            parts = response.strip().split("|")
+            raw = response.strip()
+            if not raw:
+                self._metrics.malformed_responses += 1
+                return None
+
+            if raw.startswith("V1|"):
+                parsed = parse_inbound(raw)
+                if isinstance(parsed, FillMessage):
+                    return self._parse_fill_message(parsed)
+                if isinstance(parsed, RejectMessage):
+                    return self._parse_reject_message(parsed)
+                if isinstance(parsed, ClosedMessage):
+                    return self._parse_closed_message(parsed)
+                self._metrics.malformed_responses += 1
+                return None
+
+            parts = raw.split("|")
             if not parts:
                 self._metrics.malformed_responses += 1
                 return None
 
             response_type = parts[0]
-
             if response_type == "FILL":
                 return self._parse_fill(parts)
-            elif response_type == "REJECT":
+            if response_type == "REJECT":
                 return self._parse_reject(parts)
-            elif response_type == "FAILED":
+            if response_type == "FAILED":
                 return self._parse_failed(parts)
-            else:
-                self._metrics.malformed_responses += 1
-                return None
+            self._metrics.malformed_responses += 1
+            return None
 
-        except Exception as e:
+        except Exception:
+            self._metrics.parse_errors += 1
+            return None
+
+    def _parse_fill_message(self, msg: FillMessage) -> Optional[FillResult]:
+        """Convert a protocol FillMessage into a FillResult."""
+        try:
+            return FillResult(
+                status=OrderStatus.FILL,
+                symbol=msg.symbol,
+                position_id=int(msg.position_id),
+                fill_price=float(msg.fill_price),
+                fill_time_ms=int(asyncio.get_event_loop().time() * 1000),
+                request_id=str(msg.mt5_ticket),
+                reason=None,
+            )
+        except Exception:
+            self._metrics.parse_errors += 1
+            return None
+        finally:
+            self._metrics.fills_received += 1
+
+    def _parse_reject_message(self, msg: RejectMessage) -> Optional[FillResult]:
+        """Convert a protocol RejectMessage into a FillResult."""
+        try:
+            return FillResult(
+                status=OrderStatus.REJECT,
+                symbol="",
+                position_id=int(msg.position_id),
+                fill_price=0.0,
+                fill_time_ms=0,
+                request_id=str(msg.position_id),
+                reason=msg.description,
+            )
+        except Exception:
+            self._metrics.parse_errors += 1
+            return None
+        finally:
+            self._metrics.rejects_received += 1
+
+    def _parse_closed_message(self, msg: ClosedMessage) -> Optional[FillResult]:
+        """Convert a protocol ClosedMessage into an inert fill result."""
+        try:
+            return FillResult(
+                status=OrderStatus.FAILED,
+                symbol=msg.position_id,
+                position_id=int(msg.position_id),
+                fill_price=float(msg.close_price),
+                fill_time_ms=0,
+                request_id=str(msg.position_id),
+                reason="CLOSED",
+            )
+        except Exception:
             self._metrics.parse_errors += 1
             return None
 
     def _parse_fill(self, parts: list[str]) -> Optional[FillResult]:
-        """Parse FILL|symbol|position_id|fill_price|fill_time_ms|request_id"""
+        """Parse legacy FILL|symbol|position_id|fill_price|fill_time_ms|request_id."""
         try:
             if len(parts) < 6:
                 self._metrics.malformed_responses += 1
@@ -147,8 +212,11 @@ class FillHandler:
                 # msg is a protocol dataclass (FillMessage/RejectMessage/ClosedMessage)
                 # Match by position_id if available, or mt5_ticket when provided.
                 try:
+                    if isinstance(msg, FillMessage):
+                        return self._parse_fill_message(msg)
+                    if isinstance(msg, RejectMessage):
+                        return self._parse_reject_message(msg)
                     if hasattr(msg, "position_id") and str(msg.position_id) == str(request_id):
-                        # Convert protocol FillMessage -> FillResult-like object
                         if hasattr(msg, "fill_price"):
                             return FillResult(
                                 status=OrderStatus.FILL,
@@ -158,17 +226,15 @@ class FillHandler:
                                 fill_time_ms=int(asyncio.get_event_loop().time() * 1000),
                                 request_id=str(request_id),
                             )
-                        else:
-                            # REJECT/FALSE messages
-                            return FillResult(
-                                status=OrderStatus.REJECT,
-                                symbol="",
-                                position_id=int(getattr(msg, "position_id", 0)),
-                                fill_price=0.0,
-                                fill_time_ms=int(asyncio.get_event_loop().time() * 1000),
-                                request_id=str(request_id),
-                                reason=getattr(msg, "description", None),
-                            )
+                        return FillResult(
+                            status=OrderStatus.REJECT,
+                            symbol="",
+                            position_id=int(getattr(msg, "position_id", 0)),
+                            fill_price=0.0,
+                            fill_time_ms=int(asyncio.get_event_loop().time() * 1000),
+                            request_id=str(request_id),
+                            reason=getattr(msg, "description", None),
+                        )
                 except Exception:
                     # Ignore malformed messages and continue waiting until timeout
                     continue

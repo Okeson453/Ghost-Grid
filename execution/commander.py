@@ -78,23 +78,22 @@ class ExecutionCommander:
         Returns: FillResult if successful, None if failed after retries
         """
         try:
-            # Calculate dynamic leverage and apply it to the validated lot size.
             leverage_mult = self.leverage_calculator.calculate_leverage(
                 current_atr, current_price
             )
-            effective_lot_size = self.leverage_calculator.apply_leverage(
-                order.lot_size,
-                leverage_mult,
-            )
+            effective_lot_size = order.lot_size
 
-            # Create ORDER command
             command = ExecutionCommand(
                 command_type="ORDER",
                 symbol=order.symbol,
                 direction=order.direction,
                 lot_size=effective_lot_size,
                 entry_price=current_price,
-                metadata=f"H_c={order.h_c_score};regime={order.regime};confluence={order.confluence_count}",
+                metadata=(
+                    f"H_c={order.h_c_score};regime={order.regime};"
+                    f"confluence={order.confluence_count};leverage={leverage_mult}"
+                ),
+                leverage_multiplier=leverage_mult,
             )
 
             # Dispatch with retry
@@ -157,6 +156,26 @@ class ExecutionCommander:
             return success
 
         except Exception as e:
+            return False
+
+    async def close_all(self) -> bool:
+        """Emit a single NUCLEAR_ALL command for the whole portfolio."""
+        try:
+            command = ExecutionCommand(
+                command_type="NUCLEAR_ALL",
+                symbol="",
+                direction=None,
+                lot_size=None,
+                entry_price=None,
+                position_id=None,
+                exit_reason=None,
+                metadata="",
+            )
+            success = await self.dispatcher.dispatch(command, timeout_s=5.0)
+            if success:
+                self._metrics.positions_closed += 1
+            return success
+        except Exception:
             return False
 
     async def _dispatch_with_retry(

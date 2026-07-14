@@ -6,10 +6,19 @@ WHY: Isolates pipe I/O, enables metrics tracking, provides retry interface.
 
 from __future__ import annotations
 import asyncio
+import logging
+import os
 from pathlib import Path
 from typing import Optional, Any
 
+from bridge.protocol import (
+    build_close_command,
+    build_nuclear_command,
+    build_order_command,
+)
 from .models import ExecutionCommand, DispatchMetrics
+
+logger = logging.getLogger(__name__)
 
 
 class PipeDispatcher:
@@ -33,20 +42,25 @@ class PipeDispatcher:
             self._metrics.orders_sent += 1 if command.command_type == "ORDER" else 0
             self._metrics.closes_sent += 1 if command.command_type == "CLOSE" else 0
 
-            # Build command string based on type
             if command.command_type == "ORDER":
-                command_str = (
-                    f"ORDER|{command.symbol}|{command.direction}|"
-                    f"{command.lot_size}|{command.entry_price}|"
-                    f"{command.metadata}\n"
+                command_str = build_order_command(
+                    position_id=str(command.position_id or 0),
+                    symbol=command.symbol,
+                    direction=command.direction or "LONG",
+                    lot_size=command.lot_size or 0.0,
+                    entry_price=command.entry_price or 0.0,
+                    stop_loss=0.0,
                 )
-            else:  # CLOSE
-                command_str = (
-                    f"CLOSE|{command.symbol}|{command.position_id}|"
-                    f"{command.exit_reason}\n"
-                )
+            elif command.command_type == "CLOSE":
+                command_str = build_close_command(str(command.position_id or 0))
+            else:
+                command_str = build_nuclear_command()
 
-            # Write to pipe with timeout
+            if os.getenv("PAPER_MODE", "true").lower() == "true":
+                logger.info("PAPER_MODE dispatch: %s", command_str.strip())
+                self.last_response = None
+                return True
+
             await asyncio.wait_for(
                 self._write_to_pipe(command_str),
                 timeout=timeout_s,

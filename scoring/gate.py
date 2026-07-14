@@ -75,7 +75,8 @@ class ConfluenceGate:
         """
         sym = score.symbol
 
-        # Get regime-adjusted threshold
+        # Keep the existing regime-adjusted thresholds for gate sensitivity,
+        # but let fusion apply the new regime multiplier before the gate sees it.
         threshold = REGIME_THRESHOLDS.get(score.regime, 140)
         composite = score.composite
 

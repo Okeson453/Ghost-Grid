@@ -31,6 +31,7 @@ from positions.trail_manager import TrailManager
 from positions.weakness import detect_weakness
 from positions.cvd_exit import check_cvd_exit
 from config.constants import PROFIT_TRIGGER_USD
+from scoring.bayesian_weights import BayesianWeightUpdater
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class PositionStateMachine:
         self.max_profit = 0.0
         self._trail = TrailManager(position_id, direction, symbol)
         self._events: list = []
+        self._weight_updater = BayesianWeightUpdater()
 
     def on_tick(
         self, current_price: float, snap: MarketSnapshot
@@ -142,10 +144,15 @@ class PositionStateMachine:
         pnl = self._calc_pnl(price)
         if pnl > 0:
             self.state = PositionState.CLOSED_PROFIT
+            outcome = True
         elif reason == ExitReason.NUCLEAR:
             self.state = PositionState.CLOSED_NUCLEAR
+            outcome = False
         else:
             self.state = PositionState.CLOSED_LOSS
+            outcome = False
+        for strategy in ("HMP", "HLCP", "MPP"):
+            self._weight_updater.update(strategy, outcome)
         self._log(
             "POSITION_CLOSED",
             {"reason": reason.value, "price": price, "pnl": pnl},
