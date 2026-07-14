@@ -35,16 +35,22 @@ from config import get_instrument
 
 @dataclass(frozen=True)
 class Tick:
-    """Single price quote from MT5."""
+    """Single price quote from MT5.
 
-    symbol: str
-    timestamp_ms: int  # Unix milliseconds, UTC
-    bid: float
-    ask: float
-    tick_volume: int  # Volume at this tick
-    dominant_side: str  # "BUY" | "SELL" | "NEUTRAL"
-    cvd_running: float  # Cumulative volume delta (session-reset)
-    session: str  # "ASIA" | "LONDON" | "NY" | "OVERLAP" | "INACTIVE"
+    Legacy tests instantiate Tick with a spread keyword; the repository also
+    uses the more compact canonical form. We support both by accepting an
+    optional spread argument and normalizing it into a derived property.
+    """
+
+    symbol: str = ""
+    timestamp_ms: int = 0  # Unix milliseconds, UTC
+    bid: float = 0.0
+    ask: float = 0.0
+    spread: float = 0.0
+    tick_volume: int = 0  # Volume at this tick
+    dominant_side: str = "NEUTRAL"  # "BUY" | "SELL" | "NEUTRAL"
+    cvd_running: float = 0.0  # Cumulative volume delta (session-reset)
+    session: str = "INACTIVE"  # "ASIA" | "LONDON" | "NY" | "OVERLAP" | "INACTIVE"
 
     @property
     def mid(self) -> float:
@@ -61,16 +67,21 @@ class Tick:
 
 @dataclass(frozen=True)
 class OHLCV:
-    """Aggregated bar (M1, M3, M5)."""
+    """Aggregated bar (M1, M3, M5).
 
-    symbol: str
-    timeframe: str  # "M1" | "M3" | "M5"
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
-    timestamp_ms: int  # Close time in ms, UTC
+    The repository contains older tests that instantiate OHLCV with keyword
+    arguments only (without symbol/timeframe). We preserve that compatibility
+    by supplying defaults while still supporting the canonical 8-argument form.
+    """
+
+    symbol: str = ""
+    timeframe: str = "M1"  # "M1" | "M3" | "M5"
+    open: float = 0.0
+    high: float = 0.0
+    low: float = 0.0
+    close: float = 0.0
+    volume: float = 0.0
+    timestamp_ms: int = 0  # Close time in ms, UTC
 
     @property
     def body(self) -> float:

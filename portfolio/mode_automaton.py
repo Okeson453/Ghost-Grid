@@ -29,6 +29,34 @@ class ModeDecision:
     reason: str  # Human-readable reason for Telegram report
 
 
+class ModeAutomaton:
+    """Small compatibility wrapper for applying mode decisions to portfolio state."""
+
+    def __init__(self) -> None:
+        self._last_reason: str | None = None
+
+    def apply_mode_decision(self, state: PortfolioState, decision: ModeDecision) -> bool:
+        """Apply a mode decision to state and return whether it changed the mode."""
+        if state.current_mode == decision.mode:
+            self._last_reason = decision.reason
+            return False
+        state.current_mode = decision.mode
+        self._last_reason = decision.reason
+        return True
+
+    def is_normal_mode(self, state: PortfolioState) -> bool:
+        return state.current_mode == "SCALP_NORMAL"
+
+    def is_reduced_mode(self, state: PortfolioState) -> bool:
+        return state.current_mode == "SCALP_REDUCED"
+
+    def get_mode_multiplier(self, state: PortfolioState) -> float:
+        return 1.0 if self.is_normal_mode(state) else 0.5
+
+    def get_max_leverage(self, state: PortfolioState) -> int:
+        return 30 if self.is_normal_mode(state) else 15
+
+
 def select_mode(
     state: PortfolioState,
     yesterday_loss_halt: bool,
