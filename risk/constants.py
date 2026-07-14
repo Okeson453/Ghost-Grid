@@ -31,6 +31,12 @@ MAX_DAILY_GAIN: float = 0.15  # 15% → halt trading (protect profits)
 MAX_SPREAD_PCT: float = 0.0012  # 0.12% max spread at entry time
 MARGIN_BUFFER: float = 0.80  # Never exceed 80% margin utilisation
 
+# Leverage bounds (spec: 25x - 50x). Added because previous implementation
+# did not include any leverage floor/cap — this prevents unbounded
+# leverage from being used by downstream sizing/execution code.
+MIN_LEVERAGE: float = 25.0  # Minimum allowed leverage multiplier
+MAX_LEVERAGE: float = 50.0  # Maximum allowed leverage multiplier
+
 # Size constraints
 MIN_LOT_SIZE: float = 0.01  # Absolute floor regardless of calculation
 MAX_LOT_SIZE: float = 10.0  # Absolute ceiling regardless of calculation
@@ -47,6 +53,7 @@ def _verify_constants() -> None:
     assert 1 <= MAX_CONCURRENT <= 20, "MAX_CONCURRENT out of range"
     assert 0 < MAX_BASKET_RISK <= 0.20, "MAX_BASKET_RISK out of safe range"
     assert MIN_RR_RATIO >= 1.0, "MIN_RR_RATIO below 1.0 is invalid"
+    assert 1.0 <= MIN_LEVERAGE <= MAX_LEVERAGE <= 100.0, "leverage bounds invalid"
 
 
 _verify_constants()  # Runs at import — fails fast if constants are wrong

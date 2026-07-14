@@ -57,6 +57,8 @@ class PipeDispatcher:
                 command_str = build_nuclear_command()
 
             if os.getenv("PAPER_MODE", "true").lower() == "true":
+                if self._pipe_client is not None:
+                    await self._pipe_client.connect()
                 logger.info("PAPER_MODE dispatch: %s", command_str.strip())
                 self.last_response = None
                 return True
