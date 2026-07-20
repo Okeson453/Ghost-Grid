@@ -34,6 +34,10 @@ class PortfolioState:
     def daily_pnl(self) -> float:
         return self.realized_pnl + self.unrealized_pnl
 
+    @daily_pnl.setter
+    def daily_pnl(self, value: float) -> None:
+        self.realized_pnl = value - self.unrealized_pnl
+
     # Open positions
     open_positions: Dict[int, Any] = field(default_factory=dict)
 

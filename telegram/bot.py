@@ -28,6 +28,22 @@ from telegram.commands import (
     cmd_pause,
     cmd_resume,
     cmd_positions,
+    cmd_kill,
+    cmd_confirm,
+    cmd_cancel,
+    cmd_mode,
+    cmd_pairs,
+    cmd_scores,
+    cmd_pnl,
+    cmd_health,
+    cmd_history,
+    cmd_reload,
+    cmd_closeall,
+    cmd_close,
+    cmd_setmode,
+    cmd_setlev,
+    cmd_addpair,
+    cmd_removepair,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,10 +86,26 @@ def build_application(
 
     # Register all command handlers with chat filter
     app.add_handler(CommandHandler("nuke", cmd_nuke, filters=chat_filter))
+    app.add_handler(CommandHandler("kill", cmd_kill, filters=chat_filter))
+    app.add_handler(CommandHandler("confirm", cmd_confirm, filters=chat_filter))
+    app.add_handler(CommandHandler("cancel", cmd_cancel, filters=chat_filter))
     app.add_handler(CommandHandler("status", cmd_status, filters=chat_filter))
     app.add_handler(CommandHandler("pause", cmd_pause, filters=chat_filter))
     app.add_handler(CommandHandler("resume", cmd_resume, filters=chat_filter))
     app.add_handler(CommandHandler("positions", cmd_positions, filters=chat_filter))
+    app.add_handler(CommandHandler("mode", cmd_mode, filters=chat_filter))
+    app.add_handler(CommandHandler("pairs", cmd_pairs, filters=chat_filter))
+    app.add_handler(CommandHandler("scores", cmd_scores, filters=chat_filter))
+    app.add_handler(CommandHandler("pnl", cmd_pnl, filters=chat_filter))
+    app.add_handler(CommandHandler("health", cmd_health, filters=chat_filter))
+    app.add_handler(CommandHandler("history", cmd_history, filters=chat_filter))
+    app.add_handler(CommandHandler("reload", cmd_reload, filters=chat_filter))
+    app.add_handler(CommandHandler("closeall", cmd_closeall, filters=chat_filter))
+    app.add_handler(CommandHandler("close", cmd_close, filters=chat_filter))
+    app.add_handler(CommandHandler("setmode", cmd_setmode, filters=chat_filter))
+    app.add_handler(CommandHandler("setlev", cmd_setlev, filters=chat_filter))
+    app.add_handler(CommandHandler("addpair", cmd_addpair, filters=chat_filter))
+    app.add_handler(CommandHandler("removepair", cmd_removepair, filters=chat_filter))
 
     logger.info("Telegram bot configured")
     return app

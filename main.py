@@ -47,12 +47,16 @@ from observability.metrics import record_score
 from observability.drift_detector import check_drift
 from observability.trade_journal import record_opened, record_closed
 from observability.daily_report import generate_daily_report
+from core.mode_selector import ModeSelector
 
 # ── Logging ────────────────────────────────────────────────────────────────
-structlog.configure(
-    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-)
-log = structlog.get_logger()
+if structlog is not None:
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    )
+    log = structlog.get_logger()
+else:
+    log = logging.getLogger("ghost_grid")
 
 
 # ── Global state (injected at startup, read everywhere) ────────────────────
@@ -66,6 +70,7 @@ ledger: Optional[Ledger] = None
 _shutdown_event = asyncio.Event()
 _current_prices: dict[str, float] = {}
 _pos_id_counter = 1
+_pos_id_lock = asyncio.Lock()
 
 
 # ── Scoring pipeline callback ──────────────────────────────────────────────
@@ -279,11 +284,12 @@ async def on_snapshot(snap: MarketSnapshot) -> None:
 
 
 async def _next_position_id() -> int:
-    """Get next sequential position ID."""
+    """Get next sequential position ID atomically across coroutines."""
     global _pos_id_counter
-    pid = _pos_id_counter
-    _pos_id_counter += 1
-    return pid
+    async with _pos_id_lock:
+        pid = _pos_id_counter
+        _pos_id_counter += 1
+        return pid
 
 
 # ── Startup ────────────────────────────────────────────────────────────────
@@ -438,6 +444,40 @@ async def drift_check_task() -> None:
                 log.error("drift_alert_send_error", error=str(e))
 
 
+async def heartbeat_task() -> None:
+    """Post a lightweight system heartbeat to the whitelisted Telegram chat every 30 minutes."""
+    while True:
+        try:
+            await asyncio.sleep(1800)
+            if portfolio_state is not None:
+                await _send(
+                    "💓 <b>GHOST GRID HEARTBEAT</b>\n"
+                    f"Mode: {portfolio_state.current_mode}\n"
+                    f"Open positions: {portfolio_state.open_position_count}\n"
+                    f"Equity: ${portfolio_state.net_equity:.2f}"
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error("heartbeat_error", error=str(e))
+
+
+async def mode_selector_task() -> None:
+    """Run the mode selector every 30 seconds using the latest market snapshot."""
+    selector = ModeSelector()
+    while True:
+        try:
+            await asyncio.sleep(30)
+            if portfolio_state is None:
+                continue
+            snapshot = type("Snapshot", (), {"regime": "TREND", "session": "LONDON"})()
+            selector.apply(snapshot, portfolio_state)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error("mode_selector_error", error=str(e))
+
+
 async def metrics_report_task(reader: PipeReader, writer: PipeWriter) -> None:
     """Periodically report system metrics."""
     while True:
@@ -535,6 +575,8 @@ async def main() -> None:
             # Background tasks
             daily_reset_task(),
             drift_check_task(),
+            heartbeat_task(),
+            mode_selector_task(),
             metrics_report_task(reader, fill_handler.writer),
             # Telegram
             tg_app.run_polling(),

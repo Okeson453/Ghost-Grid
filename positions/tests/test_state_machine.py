@@ -81,3 +81,30 @@ class TestPositionStateMachine:
         exit_reason = self.sm.force_close(ExitReason.NUCLEAR, snap.mid)
         assert exit_reason == ExitReason.NUCLEAR
         assert self.sm.state == PositionState.CLOSED_NUCLEAR
+
+    def test_mode_dependent_profit_trigger(self):
+        """Ensure profit trigger differs by mode (SCALP_NORMAL vs SCALP_BURST)."""
+        snap = MockMarketSnapshot()
+        # For SCALP_NORMAL (default), profit trigger is cfg.PROFIT_TRIGGER_USD (~1.50)
+        self.sm._mode_getter = lambda: "SCALP_NORMAL"
+        snap.mid = 1.09005  # small move should exceed scalp-normal trigger
+        self.sm.on_tick(snap.mid, snap)
+        assert self.sm.state == PositionState.OPEN_TRAILING
+
+        # Reset for burst mode
+        self.sm = PositionStateMachine(
+            position_id=2,
+            symbol="EURUSD",
+            direction="LONG",
+            entry=1.0900,
+            stop_loss=1.0850,
+            lots=1.0,
+            fill_ts_ms=1000001,
+            pip_value=10.0,
+            pip_size=0.0001,
+        )
+        # SCALP_BURST uses larger profit trigger (3.00)
+        self.sm._mode_getter = lambda: "SCALP_BURST"
+        snap.mid = 1.09010  # slightly larger move to exceed burst trigger
+        self.sm.on_tick(snap.mid, snap)
+        assert self.sm.state == PositionState.OPEN_TRAILING

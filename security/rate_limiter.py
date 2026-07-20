@@ -97,9 +97,11 @@ class RateLimiter:
 
         key = (user_id, action)
         if key not in self._buckets:
-            self._buckets[key] = TokenBucket(user_id, action)
-
-        bucket = self._buckets[key]
+            bucket = TokenBucket(user_id, action)
+            bucket.tokens = RATE_LIMITS[action]
+            self._buckets[key] = bucket
+        else:
+            bucket = self._buckets[key]
         allowed = bucket.try_consume(now)
 
         if not allowed:

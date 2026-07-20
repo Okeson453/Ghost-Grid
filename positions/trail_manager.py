@@ -16,6 +16,7 @@ too loose in low-volatility sessions. ATR adapts to market conditions.
 from __future__ import annotations
 from typing import Optional
 from config.constants import TRAIL_FLOOR_USD
+from core.mode_selector import get_trail_floor_for_mode
 from config.instruments import get_instrument
 
 
@@ -23,6 +24,7 @@ def compute_trail_distance(
     symbol: str,
     atr_1m: float,
     equity: float = 10_000.0,
+    mode: str | None = None,
 ) -> float:
     """
     Compute trail distance in price units.
@@ -40,8 +42,9 @@ def compute_trail_distance(
     # ATR-based distance: 0.5 × ATR_1m (in price units)
     atr_distance = atr_1m * 0.5
 
-    # USD floor: TRAIL_FLOOR_USD / pip_value = pips needed / pip_size = price units
-    floor_pips = TRAIL_FLOOR_USD / instr.pip_value
+    # USD floor: mode-aware trail floor
+    trail_floor_usd = TRAIL_FLOOR_USD if mode is None else get_trail_floor_for_mode(mode)
+    floor_pips = trail_floor_usd / instr.pip_value
     floor_price_dist = floor_pips * instr.pip_size
 
     return max(atr_distance, floor_price_dist)
@@ -72,13 +75,13 @@ class TrailManager:
     def is_armed(self) -> bool:
         return self._trail_stop is not None
 
-    def arm(self, current_price: float, atr_1m: float) -> float:
+    def arm(self, current_price: float, atr_1m: float, mode: str | None = None) -> float:
         """
         Arm the trailing stop at current_price - trail_distance (LONG)
         or current_price + trail_distance (SHORT).
         Returns the initial trail stop price.
         """
-        dist = compute_trail_distance(self._symbol, atr_1m)
+        dist = compute_trail_distance(self._symbol, atr_1m, mode=mode)
 
         if self._direction == "LONG":
             self._trail_stop = current_price - dist
@@ -87,7 +90,7 @@ class TrailManager:
 
         return self._trail_stop
 
-    def update(self, current_price: float, atr_1m: float) -> Optional[float]:
+    def update(self, current_price: float, atr_1m: float, mode: str | None = None) -> Optional[float]:
         """
         Move trail in favorable direction only.
         Returns new trail_stop if it moved, None if unchanged.
@@ -95,7 +98,7 @@ class TrailManager:
         if self._trail_stop is None:
             return None
 
-        dist = compute_trail_distance(self._symbol, atr_1m)
+        dist = compute_trail_distance(self._symbol, atr_1m, mode=mode)
         new_stop: Optional[float] = None
 
         if self._direction == "LONG":

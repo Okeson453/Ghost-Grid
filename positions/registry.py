@@ -39,6 +39,13 @@ class PositionRegistry:
             state_machine: Initialized PositionStateMachine
             portfolio_state: Portfolio state to update
         """
+        # Attach a lightweight mode getter so the state machine can resolve
+        # mode-aware thresholds without importing global state.
+        try:
+            state_machine._mode_getter = lambda: portfolio_state.current_mode
+        except Exception:
+            pass
+
         position_id = state_machine.position_id
         self._positions[position_id] = state_machine
         portfolio_state.add_position(state_machine)  # Pass only state_machine; ID is extracted from it

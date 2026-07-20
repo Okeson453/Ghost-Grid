@@ -8,7 +8,18 @@ import asyncio
 import sqlite3
 from unittest.mock import AsyncMock, MagicMock
 
+import asyncio
 import pytest
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makemodule(path, name, parent):
+    return None
 import aiosqlite
 
 from config import Settings

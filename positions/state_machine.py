@@ -31,6 +31,7 @@ from positions.trail_manager import TrailManager
 from positions.weakness import detect_weakness
 from positions.cvd_exit import check_cvd_exit
 from config.constants import PROFIT_TRIGGER_USD
+from core.mode_selector import get_profit_trigger_for_mode, get_trail_floor_for_mode
 from scoring.bayesian_weights import BayesianWeightUpdater
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,10 @@ class PositionStateMachine:
         self._trail = TrailManager(position_id, direction, symbol)
         self._events: list = []
         self._weight_updater = BayesianWeightUpdater()
+        # optional callable set by PositionRegistry to return the current
+        # portfolio mode string (e.g. "SCALP_NORMAL", "SCALP_BURST"). If
+        # not present the code will assume default scalp-normal behaviour.
+        self._mode_getter = None
 
     def on_tick(
         self, current_price: float, snap: MarketSnapshot
@@ -97,8 +102,12 @@ class PositionStateMachine:
 
         if self.state == PositionState.OPEN_UNREALIZED:
             # ── Layer 1: Profit trigger → arm trail ──────────────────────────
-            if pnl >= PROFIT_TRIGGER_USD:
-                trail_stop = self._trail.arm(current_price, snap.atr_1m)
+            # Resolve mode-aware profit trigger
+            mode = getattr(self, "_mode_getter", lambda: None)() if getattr(self, "_mode_getter", None) else None
+            profit_trigger = get_profit_trigger_for_mode(mode)
+            if pnl >= profit_trigger:
+                # Pass mode into TrailManager so it can compute mode-aware floor
+                trail_stop = self._trail.arm(current_price, snap.atr_1m, mode=mode)
                 self.state = PositionState.OPEN_TRAILING
                 self._log(
                     "TRAIL_ARMED", {"trail_stop": trail_stop, "pnl": pnl}
@@ -110,7 +119,8 @@ class PositionStateMachine:
 
         elif self.state == PositionState.OPEN_TRAILING:
             # ── Layer 2: Update trail and check hit ──────────────────────────
-            self._trail.update(current_price, snap.atr_1m)
+            mode = getattr(self, "_mode_getter", lambda: None)() if getattr(self, "_mode_getter", None) else None
+            self._trail.update(current_price, snap.atr_1m, mode=mode)
             if self._trail.is_hit(current_price):
                 return self._close(ExitReason.TRAIL_HIT, current_price)
 
